@@ -4,7 +4,7 @@ animation_generator.py
 
 this is a simple python script that creates a .ani file for my LED panel. 
 .ani file type supports
-full RGB range, comments, FPS, type distinction, and only necesary pixel updating (ONPU) coming soon after refactor
+full RGB range, comments, FPS, type distinction, and only necesary pixel updating (ONPU)
 
 Supports 
 Taking images from a folder and making them into an .ani
@@ -37,7 +37,7 @@ height = square_matrix_size
 variable that holds last frame that was printed (for optimization)
 """
 # Create the blanked out image_array filled with black pixels
-old_image_array = [[(0, 0, 0) for _ in range(width)] for _ in range(height)]
+previous_image_array = [[(0, 0, 0) for _ in range(width)] for _ in range(height)]
 
 
 """
@@ -106,7 +106,7 @@ def load_image_to_array(image_path_or_frame, color):
     width, height = image.size
     
     # Create a two-dimensional array to store the RGB values
-    image_array = [[None] * width for _ in range(height)]
+    image_array = [[(0, 0, 0) for _ in range(width)] for _ in range(height)]
     
     # Iterate over each pixel and store its RGB values in the array
     for y in range(height):
@@ -124,29 +124,60 @@ def load_image_to_array(image_path_or_frame, color):
     
     return image_array
 
+"""
+OUNP - only update necessary pixels 
+In short this is the easiest quickest way to drastically (varies a lot on content) reduce both file sizes
+but also the amount of pixels to change per frame. Meaning either much larger matrixes can be updated at the same FPS
+or much higher FPS can be achieved. 
+
+Potential to improve. Look for ways to remove even more unecessary updates by looking for small changes (unperceptable)
+"""
+def only_update_necessary_pixels(previous_image_array, current_image_array):
+    size = len(current_image_array) * len(current_image_array[0])
+    pixels_to_update = [True for _ in range(size)]
+
+    for x in range(width):
+        if x % 2 == 0:
+            for y in range(height):
+                r1, g1, b1 = current_image_array[y][x]
+                r2, g2, b2 = previous_image_array[y][x]
+                index = x * height + y
+                pixels_to_update[index] = (r1 != r2) and (g1 != g2) and (b1 != b2)
+        else:
+            for y in range(height - 1, -1, -1):  # Iterate over rows in reverse order
+                r1, g1, b1 = current_image_array[y][x]
+                r2, g2, b2 = previous_image_array[y][x]
+                index = x * height + (height - 1 - y)
+                pixels_to_update[index] = (r1 != r2) and (g1 != g2) and (b1 != b2)
+
+
+    return pixels_to_update
 
 """
 Image_array/.ani printer
 
 """
 # takes the image_array (array of a images RGB values) and prints it to the .ani file
-def print_frame_to_file(file_name, current_image_array):
+def print_frame_to_file(file_name, previous_image_array, current_image_array):
     height = len(current_image_array)
     width = len(current_image_array[0])
+    pixels_to_update  = only_update_necessary_pixels(previous_image_array, current_image_array)
     with open(file_name + ".ani", "a") as file:
         file.write(" ")
         for x in range(width):  # Iterate over columns
             if x % 2 == 0:  # Even columns
                 for y in range(height):  # Iterate over rows in each column
-                    r1, g1, b1 = current_image_array[y][x]  # Access pixel at (x, y)
                     count = x * height + y
-                    file.write(f"{count} {r1} {g1} {b1}, ")
+                    if pixels_to_update[count]:
+                        r1, g1, b1 = current_image_array[y][x]  # Access pixel at (x, y)
+                        file.write(f"{count} {r1} {g1} {b1}, ")
                         
             else:  # Odd columns
                 for y in range(height - 1, -1, -1):  # Iterate over rows in reverse order
-                    r1, g1, b1 = current_image_array[y][x]  # Access pixel at (x, y)
                     count = x * height + (height - 1 - y)
-                    file.write(f"{count} {r1} {g1} {b1}, ")
+                    if pixels_to_update[count]:
+                        r1, g1, b1 = current_image_array[y][x]  # Access pixel at (x, y)
+                        file.write(f"{count} {r1} {g1} {b1}, ")
         file.write("\n")
 
 
@@ -161,15 +192,6 @@ def probability_check(numerator, denominator):
     return random_number < numerator
 
 def shift_down(matrix):
-    """
-    Shifts each index in a matrix down by one in the x direction.
-
-    Args:
-        matrix (list of lists): The input matrix.
-
-    Returns:
-        list of lists: The shifted matrix.
-    """
     # Get the dimensions of the matrix
     rows = len(matrix)
     if rows == 0:
@@ -189,16 +211,19 @@ def shift_down(matrix):
 """
 Falling astroids function
 """
-
 def falling_astroids_effect(length_of_time, frame_rate, file_name, probability, square_matrix_size):
     number_of_frames_to_generate = length_of_time * frame_rate
     frame_count = 0
     # Create the blanked out image_array filled with black pixels
     image_array = [[(0, 0, 0) for _ in range(square_matrix_size)] for _ in range(square_matrix_size)]
+    # Create the blanked out image_array filled with black pixels
+    previous_image_array = [[(0, 0, 0) for _ in range(square_matrix_size)] for _ in range(square_matrix_size)]
     create_new_astroid = False
     non_taken_positions = list(range(square_matrix_size))  # Initialize non_taken_positions
 
     while frame_count < number_of_frames_to_generate:
+
+        previous_image_array = [row[:] for row in image_array]  # Create a deep copy of image_array
 
         # Reset positions of asteroids that have reached the bottom
         for i in range(square_matrix_size):
@@ -222,8 +247,9 @@ def falling_astroids_effect(length_of_time, frame_rate, file_name, probability, 
             else:  # If all positions are taken, reset non_taken_positions
                 non_taken_positions = list(range(square_matrix_size))
 
-        print_frame_to_file(file_name, image_array)
+        print_frame_to_file(file_name, previous_image_array, image_array)
         frame_count += 1
+
 
 
 
@@ -254,12 +280,14 @@ DRIVER
 option = input("Please enter \n1 to convert a folders images to animations\n2 to convert text to animations \n3 to convert a gif \n4 to convert a video"
                 + "\n5 Effects \n:")
 
+# Create the blanked out image_array filled with black pixels
+image_array = [[(0, 0, 0) for _ in range(width)] for _ in range(height)]
 
 # images
 if int(option) == 1:
     
     folders_name = input("Please enter the folders name: ") + "/"
-    number_of_pictures = input("Please enter the number of frames: ")
+    number_of_pictures = int(input("Please enter the number of frames: "))
     file_name = input("Please enter the name for the output file: ")
     frame_rate = input("Please enter the desired frames per second: ")
 
@@ -275,13 +303,13 @@ if int(option) == 1:
         file.write("\"\n")
         file.write("\"\n")
         file.write("FPS: " + str(frame_rate) + "\n")
-        file.write("Length: " + str(len(number_of_pictures)) + "\n")
+        file.write("Length: " + str(number_of_pictures) + "\n")
         file.write("Type: images\n")
 
     for i in range(1, int(number_of_pictures) + 1):
+        previous_image_array = image_array
         image_array = load_image_to_array(folders_name + str(i) + ".png", None)
-        print_frame_to_file(file_name, image_array)
-        old_image_array = image_array
+        print_frame_to_file(file_name, previous_image_array, image_array)
         
 # Text
 elif int(option) == 2:
@@ -307,17 +335,18 @@ elif int(option) == 2:
         
     for i in text:
         if i.isupper():
+            previous_image_array = image_array
             image_array = load_image_to_array("Alphabet/" + str(i) + ".png", color)
-            print_frame_to_file(file_name, image_array)
-            old_image_array = image_array
+            print_frame_to_file(file_name, previous_image_array, image_array)
         elif i.islower():
+            previous_image_array = image_array
             image_array = load_image_to_array("Alphabet/" + str(i) + "l" + ".png", color)
-            print_frame_to_file(file_name, image_array)
-            old_image_array = image_array
+            print_frame_to_file(file_name, previous_image_array, image_array)
         elif i.isspace():
+            previous_image_array = image_array
             image_array = load_image_to_array("Alphabet/" + "space" + ".png", color)
-            print_frame_to_file(file_name, image_array)
-            old_image_array = image_array
+            print_frame_to_file(file_name, previous_image_array, image_array)
+            
 
 # GIF
 elif int(option) == 3:
@@ -354,10 +383,11 @@ elif int(option) == 3:
         # Process the frame
         frame = gif.copy().resize((square_matrix_size, square_matrix_size))
         
+        previous_image_array = image_array
         image_array = load_image_to_array(frame, None)
         
-        print_frame_to_file(file_name, image_array)
-        old_image_array = image_array
+        print_frame_to_file(file_name, previous_image_array, image_array)
+        
 
 # Place holder for video
 elif int(option) == 4:
