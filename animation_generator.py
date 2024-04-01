@@ -22,7 +22,6 @@ At a glance panel that will show local temperature, weather, sunrise, sunset, et
 hopefully preview functionality (aka connect to the client and send commands in realtime before finalizing a .ani)
 
 """
-
 from PIL import Image
 import os
 import random
@@ -144,6 +143,12 @@ def load_image_to_array(image_path_or_frame, color, calibrated_colors):
     # Get the dimensions of the image
     width, height = image.size
     
+    if height != square_matrix_size:
+        image = image.resize((square_matrix_size, square_matrix_size), Image.NEAREST)
+    
+    # Get the dimensions of the image
+    width, height = image.size
+    
     # Create a two-dimensional array to store the RGB values
     image_array = [[(0, 0, 0) for _ in range(width)] for _ in range(height)]
     
@@ -179,10 +184,8 @@ Potential to improve. Look for ways to remove even more unecessary updates by lo
 """
 # Function to determine which pixels need to be updated in the animation frame
 def only_update_necessary_pixels(previous_image_array, current_image_array):
-    # Calculate total number of pixels
-    size = len(current_image_array) * len(current_image_array[0])
     # Initialize list to track pixels that need updating
-    pixels_to_update = [True for _ in range(size)]
+    pixels_to_update = [True for _ in range(square_matrix_size * square_matrix_size)]
 
     # Iterate over each column of pixels
     for x in range(width):
@@ -404,7 +407,7 @@ else:
 # driver code that determines what type of animation the user wants and then walks them through the selections and creates the .ani file
 option = input("Please enter \n1 to convert a folders images to animations\n2 to convert text to animations \n3 to convert a gif \n4 to convert a video"
                 + "\n5 Effects \n:")
-
+                
 # Create the blanked out image_array filled with black pixels
 image_array = [[(0, 0, 0) for _ in range(width)] for _ in range(height)]
 # images
@@ -432,6 +435,7 @@ if int(option) == 1:
         file.write("FPS: " + str(frame_rate) + "\n")
         file.write("Length: " + str(number_of_pictures) + "\n")
         file.write("Type: images\n")
+        file.write("Side_Length: " + str(square_matrix_size) + "\n")
 
     # Iterate over each frame and add it to the animation file
     for i in range(1, int(number_of_pictures) + 1):
@@ -464,6 +468,7 @@ elif int(option) == 2:
         file.write("FPS: " + str(frame_rate) + "\n")
         file.write("Length: " + str(len(text)) + "\n")
         file.write("Type: text\n")
+        file.write("Side_Length: " + str(square_matrix_size) + "\n")
 
     # Iterate over each character in the text and add it to the animation file
     for i in text:
@@ -504,6 +509,7 @@ elif int(option) == 3:
         file.write("FPS: " + str(fps) + "\n")
         file.write("Length: " + str(get_gif_number_of_frames(gif_name + ".gif")) + "\n")
         file.write("Type: gif\n")
+        file.write("Side_Length: " + str(square_matrix_size) + "\n")
         
     gif = Image.open(gif_name + ".gif")    
     # Iterate over each frame in the GIF and add it to the animation file
@@ -549,6 +555,7 @@ elif int(option) == 5:
         file.write("FPS: " + str(frame_rate) + "\n")
         file.write("Length: " + str(int(frame_rate * length_of_time)) + "\n")
         file.write("Type: effect\n")
+        file.write("Side_Length: " + str(square_matrix_size) + "\n")
 
     if effect_option == 1:
         falling_astroids_effect(length_of_time, frame_rate, file_name, square_matrix_size, calibration_dictionary)
