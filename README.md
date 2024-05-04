@@ -1,5 +1,9 @@
 PLACEHOLDER
 
+Currently working on refactoring and large scale comment styling shift (to aid readability). 
+
+EVERYTHING is in beta and expect changes and functionality to be changed/added. 
+
 
 GIFs
 16 by 16
