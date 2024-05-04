@@ -2,12 +2,12 @@
 Austin Lunbeck
 animation_generator.py
 
-this is a simple python script that creates a .ani file for my LED panel. 
+this is a simple python script that creates a .ani file for my LED panel.
 .ani file type supports
 full RGB range, comments, FPS, type distinction, only necesary pixel updating (ONPU),
-and finally the ability to work with calibrated colors 
+and finally the ability to work with calibrated colors
 
-Supports 
+Supports
 Taking images from a folder and making them into an .ani
 Taking text and converting it to a .ani including color, fps, etc
 Taking a gif and converting it to .ani
@@ -22,17 +22,22 @@ At a glance panel that will show local temperature, weather, sunrise, sunset, et
 hopefully preview functionality (aka connect to the client and send commands in realtime before finalizing a .ani)
 
 """
-from PIL import Image
+from PIL import Image, ImageSequence
 import os
 import random
 import re
 import math
+import numpy as np
 
-square_matrix_size = 8
+
+square_matrix_size = 16
 
 # Define the dimensions of the image_array
 width = square_matrix_size
 height = square_matrix_size
+
+# Defines the amount to rotate the frame before printing NOTE hard coded and expected to be included in device registration
+rotate_k = 0
 
 
 """
@@ -40,6 +45,42 @@ variable that holds last frame that was printed (for optimization)
 """
 # Create the blanked out image_array filled with black pixels
 previous_image_array = [[(0, 0, 0) for _ in range(width)] for _ in range(height)]
+
+
+"""
+Holds general colors for quick more satisfying color selection
+"""
+primary_colors = {
+    "red": (255, 0, 0),
+    "green": (0, 255, 0),
+    "blue": (0, 0, 255),
+    "black": (0, 0, 0),
+    "white": (255, 255, 255),
+    "yellow": (255, 255, 0),
+    "cyan": (0, 255, 255),
+    "magenta": (255, 0, 255),
+    "purple": (128, 0, 128),
+    "orange": (255, 165, 0),
+    "pink": (255, 192, 203),
+    "brown": (165, 42, 42),
+    "gray": (128, 128, 128),
+    "light_gray": (192, 192, 192),
+    "dark_gray": (64, 64, 64),
+    "olive": (128, 128, 0),
+    "teal": (0, 128, 128),
+    "navy": (0, 0, 128)
+}
+
+# picks a random color from our primary color and if calibration dictionary is initialized it calibrates the color and returns it else just returns it
+def pick_random_color():
+    color_name = random.choice(list(primary_colors.keys()))
+
+    if calibration_dictionary != None:
+        #print("cal wasn't none")
+        r, g, b = primary_colors[color_name]
+        return find_closest_color(calibration_dictionary, r, g, b)
+
+    return primary_colors[color_name]
 
 
 """
@@ -101,7 +142,7 @@ def find_closest_color(calibrated_colors, r, g, b):
     min_distance = float('inf')
     closest_color = None
     debug = False
-    
+
     # Iterate through calibrated colors
     for color, values in calibrated_colors.items():
         # Unpack original RGB values
@@ -113,7 +154,7 @@ def find_closest_color(calibrated_colors, r, g, b):
         if distance < min_distance:
             min_distance = distance
             closest_color = color
-    
+
     # Optional debug printing
     if debug:
         if closest_color != "black":
@@ -124,13 +165,100 @@ def find_closest_color(calibrated_colors, r, g, b):
     return calibrated_colors[closest_color][1]
 
 
+
+
+
+
+"""
+These are used as helpers to remove the grid found on gifs downloaded from the various sources
+Still in beta (working script needs better integration (handling file names through the process)
+
+"""
+# Gets the most common color of the 16 by 16 (grids) image thats been scaled to 320 by 320
+def get_most_common_color(image, grid_x, grid_y):
+    # Get the dimensions of the image
+    width, height = image.size
+
+    # Calculate the grid boundaries
+    left = grid_x * 20
+    upper = grid_y * 20
+    right = min((grid_x + 1) * 20, width)
+    lower = min((grid_y + 1) * 20, height)
+
+    # Crop the image to the grid boundaries
+    grid_image = image.crop((left, upper, right, lower))
+
+    # Get the colors of all pixels in the grid
+    colors = grid_image.getcolors(grid_image.size[0] * grid_image.size[1])
+
+    if colors is None:
+        return (0, 0, 0)  # Return default color if no colors found in the grid
+
+    # Find the most common color in the grid
+    most_common_color = max(colors, key=lambda item: item[0])[1]
+
+    return most_common_color
+
+# Removes the grid imposed on the frames of the given gif
+def remove_grid_from_gif(gif_path):
+    print("Processing:", gif_path)
+    # Open the GIF
+    gif = Image.open(gif_path)
+
+    # Create a list to store the modified frames
+    modified_frames = []
+
+    # Copy the frame rate (duration) of each frame from the original GIF
+    durations = []
+
+    # Skip the first frame when iterating over frames
+    frames_iterator = ImageSequence.Iterator(gif)
+
+    # Iterate over each frame
+    for frame in frames_iterator:
+
+        frame = frame.convert('RGB')
+        # Create a new image to store the modified frame
+        modified_frame = Image.new("RGB", frame.size, (0, 0, 0))  # Create a new image with a black background
+
+        # Iterate over each grid in the frame
+        for y in range(frame.height // 20):
+            for x in range(frame.width // 20):
+                # Get the most common color in the grid
+                most_common_color = get_most_common_color(frame, x, y)
+
+                # Replace all colors in the grid with the most common color
+                for i in range(20):
+                    for j in range(20):
+                        modified_frame.putpixel((x * 20 + i, y * 20 + j), most_common_color)
+
+
+        # Append the modified frame to the list of modified frames
+        modified_frames.append(modified_frame)
+
+        # Copy the duration of the frame from the original GIF
+        durations.append(frame.info.get("duration", 100))
+
+    # Save the modified frames as a new GIF
+    modified_frames[0].save(
+        gif_path,
+        save_all=True,
+        append_images=modified_frames[1:],
+        loop=0,
+        duration=durations
+    )
+
+
 """
 image path/ image to matrix
+
+Assumptions - assumes that if square_side_length is the same as square_matrix_size then it should check to resize the image
+    if it's not then it doesn't resize
 """
-# take an image's path and convert it to a array of RGB values (or take it's shape as one color) 
-def load_image_to_array(image_path_or_frame, color, calibrated_colors):
+# take an image's path and convert it to a array of RGB values (or take it's shape as one color)
+def load_image_to_array(image_path_or_frame, color, calibrated_colors, square_side_length):
     """Load an image and convert it to a two-dimensional array of RGB values."""
-    
+
     if not isinstance(image_path_or_frame, Image.Image):
         # Open the image
         image = Image.open(image_path_or_frame)
@@ -139,22 +267,26 @@ def load_image_to_array(image_path_or_frame, color, calibrated_colors):
     else:
         # Convert the image to RGB mode (in case it's not already in RGB)
         image = image_path_or_frame.convert("RGB")
-    
+
     # Get the dimensions of the image
-    width, height = image.size
-    
-    if height != square_matrix_size:
-        image = image.resize((square_matrix_size, square_matrix_size), Image.NEAREST)
-    
-    # Get the dimensions of the image
-    width, height = image.size
-    
+    local_width, local_height = image.size
+
+    # if their the same we assume we're ment to resize to the square_matrix_size (used for clock digits)
+    if square_side_length == square_matrix_size:
+
+        if local_height != square_matrix_size:
+            image = image.resize((square_matrix_size, square_matrix_size), Image.NEAREST)
+
+            # Get the dimensions of the image
+            local_width, local_height = image.size
+
+
     # Create a two-dimensional array to store the RGB values
-    image_array = [[(0, 0, 0) for _ in range(width)] for _ in range(height)]
-    
+    image_array = [[(0, 0, 0) for _ in range(local_width)] for _ in range(local_height)]
+
     # Iterate over each pixel and store its RGB values in the array
-    for y in range(height):
-        for x in range(width):
+    for y in range(local_height):
+        for x in range(local_width):
             r, g, b = image.getpixel((x, y))
             if color is None:
                 if calibration_dictionary != None:
@@ -171,16 +303,30 @@ def load_image_to_array(image_path_or_frame, color, calibrated_colors):
                 else:
                     r, g, b = get_color_rgb_load("black")
                     image_array[y][x] = (r, g, b)
-    
+
     return image_array
 
 """
-OUNP - only update necessary pixels 
+rotate_matrix is used for ease of use while rather inefficient it quickly allows a user to rotate their display
+to improve ergonomics, functionality, and ease of use
+"""
+def rotate_matrix(matrix, rotate_k):
+    # Convert the matrix to a NumPy array
+    np_matrix = np.array(matrix)
+    # Rotate the array clockwise by 90 degrees
+    rotated_matrix = np.rot90(np_matrix, k=rotate_k)
+    # Convert the rotated array back to a Python list
+    rotated_matrix = rotated_matrix.tolist()
+    return rotated_matrix
+
+
+"""
+OUNP - only update necessary pixels
 In short this is the easiest quickest way to drastically (varies a lot on content) reduce both file sizes
 but also the amount of pixels to change per frame. Meaning either much larger matrixes can be updated at the same FPS
-or much higher FPS can be achieved. 
+or much higher FPS can be achieved.
 
-Potential to improve. Look for ways to remove even more unecessary updates by looking for small changes (unperceptable)
+Potential to improve. Look for ways to remove even more unecessary updates by looking for small changes in color (imperceptible)
 """
 # Function to determine which pixels need to be updated in the animation frame
 def only_update_necessary_pixels(previous_image_array, current_image_array):
@@ -216,12 +362,20 @@ def only_update_necessary_pixels(previous_image_array, current_image_array):
 
 """
 Image_array/.ani printer
+takes the previous frame, current frame, and the .ani file name and writes the current frame to the file 
 
 """
 # takes the image_array (array of a images RGB values) and prints it to the .ani file
 def print_frame_to_file(file_name, previous_image_array, current_image_array):
     height = len(current_image_array)
     width = len(current_image_array[0])
+
+    # if the user wants the final result to be rotated then rotate it
+    if rotate_k != 0:
+        previous_image_array = rotate_matrix(previous_image_array, rotate_k)
+        current_image_array = rotate_matrix(current_image_array, rotate_k)
+
+
     # get what pixels to update from OUNP
     pixels_to_update  = only_update_necessary_pixels(previous_image_array, current_image_array)
     with open(file_name + ".ani", "a") as file:
@@ -233,7 +387,7 @@ def print_frame_to_file(file_name, previous_image_array, current_image_array):
                     if pixels_to_update[count]:
                         r1, g1, b1 = current_image_array[y][x]  # Access pixel at (x, y)
                         file.write(f"{count} {r1} {g1} {b1}, ")
-                        
+
             else:  # Odd columns
                 for y in range(height - 1, -1, -1):  # Iterate over rows in reverse order
                     count = x * height + (height - 1 - y)
@@ -241,10 +395,11 @@ def print_frame_to_file(file_name, previous_image_array, current_image_array):
                         r1, g1, b1 = current_image_array[y][x]  # Access pixel at (x, y)
                         file.write(f"{count} {r1} {g1} {b1}, ")
         file.write("\n")
+        file.flush()
 
 
 """
-EFFECTS 
+EFFECTS
 """
 
 """
@@ -288,7 +443,7 @@ def falling_astroids_effect(length_of_time, frame_rate, file_name, square_matrix
     non_taken_positions = list(range(square_matrix_size))  # Initialize non_taken_positions
 
     """
-    Generate a frame by making a deep copy of the current frame, checking if any astroids have reached the bottom (if so remove them), 
+    Generate a frame by making a deep copy of the current frame, checking if any astroids have reached the bottom (if so remove them),
     shifting down the matrix, then possibly generating a new astroid, finally print the newly generated frame and repeat
     """
     while frame_count < number_of_frames_to_generate:
@@ -303,17 +458,14 @@ def falling_astroids_effect(length_of_time, frame_rate, file_name, square_matrix
                 non_taken_positions.append(i)  # Mark the position as available
 
         image_array = shift_down(image_array)
-        
+
 
         create_new_astroid = probability_check(probability, 100)
         if create_new_astroid or not non_taken_positions:  # Check if there are positions available
             if non_taken_positions:  # If there are positions available, create a new asteroid
                 position = random.choice(non_taken_positions)
-                
-                r = random.randint(50, 255)
-                g = random.randint(50, 255)
-                b = random.randint(50, 255)
-                
+
+                r, g, b = pick_random_color()
 
                 if calbration_dictionary != None:
                     (r, g, b) = find_closest_color(calbration_dictionary, r, g, b)
@@ -328,13 +480,165 @@ def falling_astroids_effect(length_of_time, frame_rate, file_name, square_matrix
 
 
 """
-Placeholder as realistically need higher pixel panel to make 
+Placeholder as realistically need higher pixel panel to make
 """
 def bouncing_ball(length_of_time, frame_rate, file_name, square_matrix_size, calibration_dictionary):
-    pass
+    direction_dictionary = {'down': (1, 0), 'up': (-1, 0), 'right': (0, 1), 'left': (0, -1), 'down_right': (1, 1),
+                            'down_left': (1, -1), 'up_right': (-1, 1), 'up_left': (-1, -1)}
+
+    num_balls = int(input("Please enter the number of balls: "))
+
+    balls = []
+
+    for _ in range(num_balls):
+        r, g, b = pick_random_color()
+        while r == 0 and g == 0 and b == 0:
+            r, g, b = pick_random_color()
+        new_ball = {
+            'col_of_ball': random.randint(0, square_matrix_size - 1),
+            'row_of_ball': random.randint(0, square_matrix_size - 1),
+            'col_direction': 1,
+            'row_direction': 1,
+            'hit_wall_flag': False,
+            'r_g_b': (r, g, b),
+            'randomness_modifier': random.randint(1, 4)
+        }
+        balls.append(new_ball)
+
+    frame_count = 0
+    image_array = [[(0, 0, 0) for _ in range(square_matrix_size)] for _ in range(square_matrix_size)]
+    previous_image_array = [[(0, 0, 0) for _ in range(square_matrix_size)] for _ in range(square_matrix_size)]
+
+    while frame_count < (frame_rate * length_of_time):
+        previous_image_array = [row[:] for row in image_array]  # Create a deep copy of image_array
+        for ball in balls:
+            try:
 
 
+                col_of_ball = ball['col_of_ball']
+                row_of_ball = ball['row_of_ball']
+                col_direction = ball['col_direction']
+                row_direction = ball['row_direction']
+                hit_wall_flag = ball['hit_wall_flag']
+                r, g, b = ball['r_g_b']
+                randomness_modifier = ball['randomness_modifier']
 
+                # Clear the previous position of the ball
+                image_array[col_of_ball][row_of_ball] = (0, 0, 0)
+
+                # Check if the next position will be out of bounds
+                next_col = col_of_ball + col_direction
+                next_row = row_of_ball + row_direction
+
+                # Randomly change direction if needed
+                if hit_wall_flag:
+                    randomness_modifier = random.randint(1, 4)
+                    hit_wall_flag = False
+
+                if next_col < 0 or next_col >= square_matrix_size:
+                    coin_flip = random.randint(1, 100)
+                    if coin_flip > 95:
+                        r, g, b = pick_random_color()
+                        while r == 0 and g == 0 and b == 0:
+                            r, g, b = pick_random_color()
+                    hit_wall_flag = True
+                    col_direction *= -1  # Change the direction
+                    col_of_ball += col_direction  # Adjust the position
+                else:
+                    col_of_ball = next_col  # Update the column position
+
+                if next_row < 0 or next_row >= square_matrix_size:
+                    coin_flip = random.randint(1, 100)
+                    if coin_flip > 95:
+                        r, g, b = pick_random_color()
+                        while r == 0 and g == 0 and b == 0:
+                            r, g, b = pick_random_color()
+
+                    hit_wall_flag = True
+                    row_direction *= -1  # Change the direction
+                    row_of_ball += row_direction  # Adjust the position
+                else:
+                    row_of_ball = next_row  # Update the row position
+
+                coin_flip = random.randint(1, 100)
+                if coin_flip > 92:
+                    coin_flip = random.randint(1, 2)
+                    if randomness_modifier == 1:
+                        if coin_flip == 1:
+                            if (col_of_ball + 1) <= square_matrix_size - 1:
+                                col_of_ball = col_of_ball + 1
+                        else:
+                            if (col_of_ball - 1) >= 0:
+                                col_of_ball = col_of_ball - 1
+                    else:
+                        if coin_flip == 1:
+                            if (row_of_ball + 1) <= square_matrix_size - 1:
+                                row_of_ball = row_of_ball + 1
+                        else:
+                            if (row_of_ball - 1) >= 0:
+                                row_of_ball = row_of_ball - 1
+
+                # Update the ball's position in the image_array
+                image_array[col_of_ball][row_of_ball] = (r, g, b)
+
+                ball['col_of_ball'] = col_of_ball
+                ball['row_of_ball'] = row_of_ball
+                ball['col_direction'] = col_direction
+                ball['row_direction'] = row_direction
+                ball['hit_wall_flag'] = hit_wall_flag
+                ball['r_g_b'] = (r, g, b)
+                ball['randomness_modifier'] = randomness_modifier
+
+            except IndexError:
+                hit_wall_flag = True  # Set flag if the ball hits the wall
+
+        # Print the frame to the file
+        print_frame_to_file(file_name, previous_image_array, image_array)
+        frame_count += 1
+
+
+"""
+Moving lines helper function
+"""
+def array_to_matrix(image_array, rows, cols):
+    matrix = []
+    for i in range(0, len(image_array), cols):
+        matrix.append(image_array[i:i+cols])
+    return matrix
+
+"""
+Moving lines function
+"""
+def moving_lines(length_of_time, frame_rate, file_name, square_matrix_size, calibration_dictionary):
+    length_of_line = input("Please enter the number of pixels each line should be: ")
+    length_of_line = int(length_of_line)
+
+    image_as_one_dimensional_array = [(0, 0, 0)] * (square_matrix_size * square_matrix_size)
+
+    # Create the blanked out image_array filled with black pixels
+    image_array = [[(0, 0, 0) for _ in range(square_matrix_size)] for _ in range(square_matrix_size)]
+    # Create the blanked out image_array filled with black pixels
+    previous_image_array = [[(0, 0, 0) for _ in range(square_matrix_size)] for _ in range(square_matrix_size)]
+
+    frame_count = 0
+
+    while frame_count < (length_of_time * frame_rate):
+
+        r, g, b = pick_random_color()
+        while r == 0 and g == 0 and b == 0:
+            r, g, b = pick_random_color()
+
+        for i in range(0, length_of_line):
+            image_as_one_dimensional_array[0] = r, g, b
+            #print(image_as_one_dimensional_array)
+            previous_image_array = [row[:] for row in image_array]  # Create a deep copy of image_array
+            image_array = array_to_matrix(image_as_one_dimensional_array, square_matrix_size, square_matrix_size)
+            #print(image_array)
+            print_frame_to_file(file_name, previous_image_array, image_array)
+            frame_count = frame_count + 1
+
+            for j in range(len(image_as_one_dimensional_array) - 1, 0, -1):
+                image_as_one_dimensional_array[j] = tuple(image_as_one_dimensional_array[j - 1])
 
 
 """
@@ -351,7 +655,7 @@ def get_gif_fps(file_path):
         duration = img.info['duration']  # Get the duration of each frame in milliseconds
         fps = 1000 / duration  # Convert duration from milliseconds to seconds
         return fps
-    
+
 # gets the number of frames in a gif
 def get_gif_number_of_frames(file_path):
     with Image.open(file_path) as img:
@@ -359,8 +663,131 @@ def get_gif_number_of_frames(file_path):
         return total_frames
 
 
+
 """
-Calibration File Reader
+Clock methods
+
+"""
+# takes the image_array (array of a images RGB values) and prints it to the .ani file
+def print_frame_to_file_debug(file_name, previous_image_array, current_image_array):
+    height = len(current_image_array)
+    width = len(current_image_array[0])
+    # get what pixels to update from OUNP
+    pixels_to_update  = only_update_necessary_pixels(previous_image_array, current_image_array)
+    with open(file_name + ".ani", "a") as file:
+        file.write(" ")
+        for x in range(width):  # Iterate over columns
+            if x % 2 == 0:  # Even columns
+                for y in range(height):  # Iterate over rows in each column
+                    count = x * height + y
+                    r1, g1, b1 = current_image_array[y][x]  # Access pixel at (x, y)
+                    file.write(f"{count} {r1} {g1} {b1}, ")
+
+            else:  # Odd columns
+                for y in range(height - 1, -1, -1):  # Iterate over rows in reverse order
+                    count = x * height + (height - 1 - y)
+                    r1, g1, b1 = current_image_array[y][x]  # Access pixel at (x, y)
+                    file.write(f"{count} {r1} {g1} {b1}, ")
+        file.write("\n")
+
+def imprint_matrix(row, col, image_array, character, font_color, calibration_dictionary):
+    character_array = []
+
+    if character == ':':
+        character_array = load_image_to_array("Digits/" + str("colon") + ".png", font_color, calibration_dictionary, -1)
+    else:
+        character_array = load_image_to_array("Digits/" + str(character) + ".png", font_color, calibration_dictionary, -1)
+
+
+
+    character_array = np.array(character_array)
+    image_array = np.array(image_array)
+
+
+    # Starting row and column index in the target array
+    start_row = row
+    start_col = col
+
+    # Get the dimensions of the source and target arrays
+    source_rows = len(character_array)
+    source_cols = len(character_array[0])
+    target_rows = len(image_array)
+    target_cols = len(image_array[0])
+
+    # Calculate the ending row and column index in the target array
+    end_row = min(start_row + source_rows, target_rows)
+    end_col = min(start_col + source_cols, target_cols)
+
+    # Place the source array into the target array
+    image_array[start_row:end_row, start_col:end_col] = character_array[:end_row - start_row, :end_col - start_col]
+
+    image_array = image_array.tolist()
+    return image_array
+
+
+def clock_generator(file_name, font_color, row_offset, col_offset, calbration_dictionary):
+
+    digit_col_length = 3
+    colon_length = 2
+
+    # Create the blanked out image_array filled with black pixels
+    previous_image_array = [[(0, 0, 0) for _ in range(square_matrix_size)] for _ in range(square_matrix_size)]
+    # Create the blanked out image_array filled with black pixels
+    current_image_array = [[(0, 0, 0) for _ in range(square_matrix_size)] for _ in range(square_matrix_size)]
+
+
+    for j in range(0, 60):
+        i = 12
+        first_digit = i // 10
+        if int(first_digit) == 1:
+            current_image_array = imprint_matrix(row_offset, col_offset, current_image_array, first_digit, font_color, calibration_dictionary)
+            second_digit = i % 10
+            current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 1) + 1, current_image_array, second_digit, font_color, calibration_dictionary)
+        else:
+            second_digit = i % 10
+            current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 1) + 1, current_image_array, second_digit, font_color, calibration_dictionary)
+
+
+        current_image_array = imprint_matrix(row_offset + 2, col_offset + (digit_col_length * 2) + 1, current_image_array, ':', font_color, calibration_dictionary)
+
+        third_digit = j // 10
+        current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 2) + 1 + colon_length, current_image_array, third_digit, font_color, calibration_dictionary)
+        fourth_digit = j % 10
+        current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 3) + 2 + colon_length, current_image_array, fourth_digit, font_color, calibration_dictionary)
+
+
+
+        print_frame_to_file_debug(file_name, previous_image_array, current_image_array)
+        previous_image_array = current_image_array
+        current_image_array = [[(0, 0, 0) for _ in range(width)] for _ in range(height)]
+
+    for i in range(1, 12):
+        for j in range(0, 60):
+            first_digit = i // 10
+            if int(first_digit) == 1:
+                current_image_array = imprint_matrix(row_offset, col_offset, current_image_array, first_digit, font_color, calibration_dictionary)
+                second_digit = i % 10
+                current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 1) + 1, current_image_array, second_digit, font_color, calibration_dictionary)
+            else:
+                second_digit = i % 10
+                current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 1) + 1, current_image_array, second_digit, font_color, calibration_dictionary)
+
+
+            current_image_array = imprint_matrix(row_offset + 2, col_offset + (digit_col_length * 2) + 1, current_image_array, ':', font_color, calibration_dictionary)
+
+            third_digit = j // 10
+            current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 2)  + 1 + colon_length, current_image_array, third_digit, font_color, calibration_dictionary)
+            fourth_digit = j % 10
+            current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 3) + 2 + colon_length, current_image_array, fourth_digit, font_color, calibration_dictionary)
+
+            print_frame_to_file_debug(file_name, previous_image_array, current_image_array)
+            previous_image_array = current_image_array
+            current_image_array = [[(0, 0, 0) for _ in range(width)] for _ in range(height)]
+
+
+
+"""
+Calibration File Reader - NOTE CURRENTLY UNUSED AS COLOR quality was significantly better than expected but code is functional
 """
 # Function to read calibration data from a file and store it in a dictionary
 def read_calibration_file(filename):
@@ -390,67 +817,112 @@ def read_calibration_file(filename):
     return colors
 
 
-
 """
 DRIVER
 
 """
 # Check if the file exists
 if os.path.exists("calibration.cal"):
-    print("here")
     calibration_dictionary = read_calibration_file("calibration.cal")
-        
+
 else:
     calibration_dictionary = None
 
+# DONT USE CALIBRATION FILE SINCE COLORS ARE SATISFACTORY
+calibration_dictionary = None
+
+# Ask the user if they want the final frame to be rotated
+#rotate_k = int(input("Please input K value: "))
 
 # driver code that determines what type of animation the user wants and then walks them through the selections and creates the .ani file
-option = input("Please enter \n1 to convert a folders images to animations\n2 to convert text to animations \n3 to convert a gif \n4 to convert a video"
-                + "\n5 Effects \n:")
-                
+option = input("Please enter \n1 folders of images\n2 text \n3 gif \n4 video"
+                + "\n5 Effects \n6 24 hour clock\n7 itinerary\n:")
+
 # Create the blanked out image_array filled with black pixels
 image_array = [[(0, 0, 0) for _ in range(width)] for _ in range(height)]
+
 # images
 if int(option) == 1:
     # Prompt the user for input
     folders_name = input("Please enter the folder's name: ") + "/"
-    number_of_pictures = int(input("Please enter the number of frames: "))
-    file_name = input("Please enter the name for the output file: ")
-    frame_rate = input("Please enter the desired frames per second: ")
-    
-    # Prepare the file path
-    file_path = file_name + ".ani"
 
-    # Remove the file if it already exists
-    if os.path.exists(file_path):
-        os.remove(file_path)
-        print("File deleted successfully.")
+    numbered_or_random = input("Are the images numbered 1-x?(Y/N):")
+
+    if numbered_or_random.lower() == "y":
+
+        number_of_pictures = int(input("Please enter the number of frames: "))
+        file_name = input("Please enter the name for the output file: ")
+        frame_rate = input("Please enter the desired frames per second: ")
+
+        # Prepare the file path
+        file_path = file_name + ".ani"
+
+        calibration_dictionary = None
+
+        # Remove the file if it already exists
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            print("File deleted successfully.")
+        else:
+            print("File does not exist.")
+
+        # Write animation metadata to the file
+        with open(file_name + ".ani", "a") as file:
+            file.write("\"\n")
+            file.write("\"\n")
+            file.write("FPS: " + str(frame_rate) + "\n")
+            file.write("Length: " + str(number_of_pictures) + "\n")
+            file.write("Type: images\n")
+            file.write("Side_Length: " + str(square_matrix_size) + "\n")
+
+        # Iterate over each frame and add it to the animation file
+        for i in range(1, int(number_of_pictures) + 1):
+            previous_image_array = image_array
+            image_array = load_image_to_array(folders_name + str(i) + ".png", None, calibration_dictionary, square_matrix_size)
+            print_frame_to_file(file_name, previous_image_array, image_array)
+
     else:
-        print("File does not exist.")
-    
-    # Write animation metadata to the file
-    with open(file_name + ".ani", "a") as file:
-        file.write("\"\n")
-        file.write("\"\n")
-        file.write("FPS: " + str(frame_rate) + "\n")
-        file.write("Length: " + str(number_of_pictures) + "\n")
-        file.write("Type: images\n")
-        file.write("Side_Length: " + str(square_matrix_size) + "\n")
+        number_of_pictures = os.listdir(folders_name)
+        file_name = input("Please enter the name for the output file: ")
+        frame_rate = input("Please enter the desired frames per second: ")
 
-    # Iterate over each frame and add it to the animation file
-    for i in range(1, int(number_of_pictures) + 1):
-        previous_image_array = image_array
-        image_array = load_image_to_array(folders_name + str(i) + ".png", None, calibration_dictionary)
-        print_frame_to_file(file_name, previous_image_array, image_array)
-        
+        # Prepare the file path
+        file_path = file_name + ".ani"
+
+        calibration_dictionary = None
+
+        # Remove the file if it already exists
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            print("File deleted successfully.")
+        else:
+            print("File does not exist.")
+
+        # Write animation metadata to the file
+        with open(file_name + ".ani", "a") as file:
+            file.write("\"\n")
+            file.write("\"\n")
+            file.write("FPS: " + str(frame_rate) + "\n")
+            file.write("Length: " + str(number_of_pictures) + "\n")
+            file.write("Type: images\n")
+            file.write("Side_Length: " + str(square_matrix_size) + "\n")
+
+        # Iterate over each file in the folder
+        for current_file in os.listdir(folders_name):
+            previous_image_array = image_array
+            image_array = load_image_to_array(folders_name + "/" + current_file, None, calibration_dictionary,
+                                              square_matrix_size)
+            print_frame_to_file(file_name, previous_image_array, image_array)
+
+
 # Text
 elif int(option) == 2:
     # Prompt the user for text input
     text = input("Please enter the text you want: ")
-    color = input("Please enter a color from the list. Options are:\nred, green, blue,\nblack, white, yellow,\ncyan, magenta, purple,\norange, pink, brown,\ngray, light_gray, dark_gray,\nolive, teal, navy: ")
+    font_color = input("Please enter a color from the list. Options are:\nred, green, blue,\nblack, white, yellow,\ncyan, magenta, purple,\norange, pink, brown,\ngray, light_gray, dark_gray,\nolive, teal, navy: ")
     file_name = input("Please enter the name for the output file: ")
     frame_rate = input("Please enter the desired frames per second: ")
-    
+
     # Prepare the file path
     file_path = file_name + ".ani"
 
@@ -460,7 +932,9 @@ elif int(option) == 2:
         print("File deleted successfully.")
     else:
         print("File does not exist.")
-    
+
+    calibration_dictionary = None
+
     # Write animation metadata to the file
     with open(file_name + ".ani", "a") as file:
         file.write("\"\n")
@@ -474,57 +948,145 @@ elif int(option) == 2:
     for i in text:
         previous_image_array = image_array
         if i.isupper():
-            image_array = load_image_to_array("Alphabet/" + str(i) + ".png", color, calibration_dictionary)
+            image_array = load_image_to_array("Alphabet/" + str(i) + ".png", font_color, calibration_dictionary, square_matrix_size)
             print_frame_to_file(file_name, previous_image_array, image_array)
         elif i.islower():
-            image_array = load_image_to_array("Alphabet/" + str(i) + "l" + ".png", color, calibration_dictionary)
+            image_array = load_image_to_array("Alphabet/" + str(i) + "l" + ".png", font_color, calibration_dictionary, square_matrix_size)
             print_frame_to_file(file_name, previous_image_array, image_array)
         elif i.isspace():
-            image_array = load_image_to_array("Alphabet/" + "space" + ".png", color, calibration_dictionary)
+            image_array = load_image_to_array("Alphabet/" + "space" + ".png", font_color, calibration_dictionary, square_matrix_size)
             print_frame_to_file(file_name, previous_image_array, image_array)
 
 # GIF
 elif int(option) == 3:
-    # Prompt the user for GIF input
-    gif_name = input("Please enter the file name of the gif: ")
-    file_name = input("Please enter the output files name: ")
-    
-    # Get the frames per second from the GIF
-    fps = get_gif_fps(gif_name + ".gif")
 
-    # Prepare the file path
-    file_path = file_name + ".ani"
+    folder_or_file = input("Would you like to convert a folder of gifs?(Y/N)")
 
-    # Remove the file if it already exists
-    if os.path.exists(file_path):
-        os.remove(file_path)
-        print("File deleted successfully.")
+    if folder_or_file.lower() == "n":
+
+        # Prompt the user for GIF input
+        gif_name = input("Please enter the file name of the gif: ")
+        file_name = input("Please enter the output files name: ")
+        custom_fps = input("Do you want a custom FPS?(Y/N): ")
+        insert_black_frame = input("Insert a black frame at end of gif? (Y/N): ")
+        remove_grid = input("Remove a grid? (Y/N): ")
+
+        gif_type_check = gif_name[-4:]
+
+        if gif_type_check.lower() != '.gif':
+            gif_name = gif_name + ".gif"
+
+        if remove_grid.lower() == 'y':
+            remove_grid_from_gif(gif_name)
+            gif_name = "grid_removal/modified.gif"
+
+        if custom_fps.lower() == 'n':
+            # Get the frames per second from the GIF
+            fps = get_gif_fps(gif_name)
+        else:
+            fps = int(input("Please enter the desired FPS: "))
+
+        # Prepare the file path
+        file_path = file_name + ".ani"
+
+        calibration_dictionary = None
+
+        # Remove the file if it already exists
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            print("File deleted successfully.")
+        else:
+            print("File does not exist.")
+
+        # Write animation metadata to the file
+        with open(file_name + ".ani", "a") as file:
+            file.write("\"\n")
+            file.write("\"\n")
+            file.write("FPS: " + str(fps) + "\n")
+            file.write("Length: " + str(get_gif_number_of_frames(gif_name)) + "\n")
+            file.write("Type: gif\n")
+            file.write("Side_Length: " + str(square_matrix_size) + "\n")
+
+        gif = Image.open(gif_name)
+        # Iterate over each frame in the GIF and add it to the animation file
+        while True:
+            try:
+                gif.seek(gif.tell() + 1)
+            except EOFError:
+                break
+
+            frame = gif.copy().resize((square_matrix_size, square_matrix_size), Image.NEAREST)
+
+            previous_image_array = image_array
+            image_array = load_image_to_array(frame, None, calibration_dictionary, square_matrix_size)
+
+            print_frame_to_file(file_name, previous_image_array, image_array)
+
+        if insert_black_frame.lower() == 'y':
+            image_array = [[(0, 0, 0) for _ in range(square_matrix_size)] for _ in range(square_matrix_size)]
+            print_frame_to_file(file_name, previous_image_array, image_array)
+
     else:
-        print("File does not exist.")
-        
-    # Write animation metadata to the file
-    with open(file_name + ".ani", "a") as file:
-        file.write("\"\n")
-        file.write("\"\n")
-        file.write("FPS: " + str(fps) + "\n")
-        file.write("Length: " + str(get_gif_number_of_frames(gif_name + ".gif")) + "\n")
-        file.write("Type: gif\n")
-        file.write("Side_Length: " + str(square_matrix_size) + "\n")
-        
-    gif = Image.open(gif_name + ".gif")    
-    # Iterate over each frame in the GIF and add it to the animation file
-    while True:
-        try:
-            gif.seek(gif.tell() + 1)
-        except EOFError:
-            break
-    
-        frame = gif.copy().resize((square_matrix_size, square_matrix_size))
-        
-        previous_image_array = image_array
-        image_array = load_image_to_array(frame, None, calibration_dictionary)
-        
-        print_frame_to_file(file_name, previous_image_array, image_array)
+        # Prompt the user to input a folder containing GIF files
+        folder_path = input("Enter the folder path containing GIF files: ")
+
+        # Iterate over each file in the folder
+        for filename in os.listdir(folder_path):
+            # Create the blanked out image_array filled with black pixels
+            previous_image_array = [[(0, 0, 0) for _ in range(square_matrix_size)] for _ in range(square_matrix_size)]
+            # Create the blanked out image_array filled with black pixels
+            image_array = [[(0, 0, 0) for _ in range(square_matrix_size)] for _ in range(square_matrix_size)]
+            if filename.endswith(".gif") or filename.endswith(".GIF"):
+                gif_path = os.path.join(folder_path, filename)
+
+                # Get the frames per second from the GIF
+                fps = get_gif_fps(gif_path)
+
+                file_name = filename[:-4]
+
+                # Prepare the file path
+                file_path = folder_path + "/" + file_name + ".ani"
+
+                calibration_dictionary = None
+
+                # Remove the file if it already exists
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    print("File deleted successfully.")
+                else:
+                    print("File does not exist.")
+
+                # Write animation metadata to the file
+                with open(file_path, "a") as file:
+                    file.write("\"\n")
+                    file.write("\"\n")
+                    file.write("FPS: " + str(fps) + "\n")
+                    file.write("Length: " + str(get_gif_number_of_frames(gif_path)) + "\n")
+                    file.write("Type: gif\n")
+                    file.write("Side_Length: " + str(square_matrix_size) + "\n")
+
+                if not os.path.exists(gif_path):
+                    print("error invalid paths")
+                    sys.exit(1)
+                gif = Image.open(gif_path)
+
+                file_path = file_path[:-4]
+
+                # Iterate over each frame in the GIF and add it to the animation file
+                while True:
+                    try:
+                        gif.seek(gif.tell() + 1)
+                    except EOFError:
+                        break
+
+                    frame = gif.copy().resize((square_matrix_size, square_matrix_size), Image.NEAREST)
+
+                    previous_image_array = image_array
+                    image_array = load_image_to_array(frame, None, calibration_dictionary, square_matrix_size)
+
+                    print_frame_to_file(file_path, previous_image_array, image_array)
+
+
 
 # Placeholder for video
 elif int(option) == 4:
@@ -533,7 +1095,7 @@ elif int(option) == 4:
 # Effects
 elif int(option) == 5:
     # Prompt the user for effect input
-    effect_option = int(input("Select an effect \n1 falling asteroids\n2 bouncing ball\n:"))
+    effect_option = int(input("Select an effect \n1 falling asteroids\n2 bouncing ball\n3 moving lines\n:"))
     length_of_time = int(input("Length of time for the animation in seconds: "))
     frame_rate = int(input("Desired frame rate: "))
     file_name = input("Please enter the output file name: ")
@@ -547,7 +1109,7 @@ elif int(option) == 5:
         print("File deleted successfully.")
     else:
         print("File does not exist.")
-        
+
     # Write animation metadata to the file
     with open(file_name + ".ani", "a") as file:
         file.write("\"\n")
@@ -561,3 +1123,121 @@ elif int(option) == 5:
         falling_astroids_effect(length_of_time, frame_rate, file_name, square_matrix_size, calibration_dictionary)
     elif effect_option == 2:
         bouncing_ball(length_of_time, frame_rate, file_name, square_matrix_size, calibration_dictionary)
+    elif effect_option == 3:
+        moving_lines(length_of_time, frame_rate, file_name, square_matrix_size, calibration_dictionary)
+
+elif int(option) == 6:
+    if square_matrix_size <= 8:
+        print("clock isn't able to be shown on such a small display\n")
+        exit()
+    else:
+        file_name = input("Please enter the output file name: ")
+        font_color = input("Please enter a color from the list. Options are:\nred, green, blue,\nwhite, yellow,\ncyan, magenta, purple,\norange, pink, brown,\ngray, light_gray, dark_gray,\nolive, teal, navy: ")
+        should_center = input("Want it column centered? (Y/N): ")
+        if should_center.lower() == 'y':
+            if square_matrix_size > 16:
+                col_offset = (((square_matrix_size // 16) // 2) * 16) - 8
+                row_offset = 0
+            else:
+                col_offset = 0
+                row_offset = 0
+        else:
+            should_manual_offset = input("Want to give manual row/column offsets? (Y/N): ")
+            if should_manual_offset.lower() == 'y':
+                row_offset = input("Please enter the row offset desired: ")
+                col_offset = input("Please enter the column offset desired: ")
+            else:
+                row_offset = 0
+                col_offset = 0
+
+
+        # Prepare the file path
+        file_path = file_name + ".ani"
+
+        # Remove the file if it already exists
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            print("File deleted successfully.")
+        else:
+            print("File does not exist.")
+
+        # Write animation metadata to the file
+        with open(file_name + ".ani", "a") as file:
+            file.write("\"\n")
+            file.write("\"\n")
+            #TODO unblock
+            #file.write("FPS: " + str("0.016666666667") + "\n")
+            file.write("FPS: " + str("1") + "\n")
+            file.write("Length: " + str("1440") + "\n")
+            file.write("Type: clock\n")
+            file.write("Side_Length: " + str(square_matrix_size) + "\n")
+
+        clock_generator(file_name, font_color, int(row_offset), int(col_offset), calibration_dictionary)
+
+elif int(option) == 7:
+    seconds_to_account_for = 86400
+
+    print("Welcome to the itinerary maker. Essentially a whole day is cut up into just seconds.\nSo you will be asked what file you want and then how long it should play.\nThis continues until all 86400 seconds are used.\n")
+    itinerary_file_name = input("Please enter the name of the itinerary file (without .iti extentsion): ")
+    random_gifs = input(("Want to just show random gifs? (Y/N): "))
+
+    if random_gifs.lower() == "n":
+
+        while seconds_to_account_for > 0:
+            file_name = input("Please enter the files name or path (with name): ")
+
+            extentsion_check = file_name[-4:]
+
+            if extentsion_check.lower() != ".ani":
+                file_name = file_name + ".ani"
+
+            seconds_played = int(input("Please enter how many seconds it should play for: "))
+            while seconds_to_account_for - seconds_played < 0:
+                seconds_played = int(input("Thats too long you only have " + str(seconds_to_account_for) + " to allot for enter a new number: "))
+
+
+            with open(itinerary_file_name + '.iti', 'a') as file:
+                file.write((str(seconds_to_account_for) + " - " + str(seconds_to_account_for - seconds_played) + " : " + str(file_name) + "\n"))
+
+            seconds_to_account_for = seconds_to_account_for - seconds_played
+
+    else:
+        gifs = []
+        # Remove the file if it already exists
+        if os.path.exists(itinerary_file_name + ".iti"):
+            os.remove(itinerary_file_name + ".iti")
+            print("File deleted successfully.")
+        else:
+            print("File does not exist.")
+
+        # Iterate over each file in the folder
+        for filename in os.listdir("random_gif_anis"):
+            if filename.endswith(".ANI") or filename.endswith(".ani"):
+                gif_path = os.path.join("random_gif_anis", filename)
+                # Perform grid removal on the GIF and replace it with the modified version
+                with open(gif_path, "r") as file:
+                    line = file.readline()
+                    while True:
+                        line = file.readline()
+                        if "\"" in line:
+                            line = file.readline()
+                            break
+                    fps = line.split().pop()
+                    length = file.readline()
+                    length = length.split().pop()
+
+
+                gifs.append((gif_path, int(round(int(float(length))//int(float(fps))))))
+
+        while seconds_to_account_for > 0:
+            gif_path, duration = random.choice(gifs)
+
+            seconds_played = random.randint(2, 5) * duration
+
+            with open(itinerary_file_name + '.iti', 'a') as file:
+                file.write((str(seconds_to_account_for) + " - " + str(seconds_to_account_for - seconds_played) + " : " + str(gif_path) + "\n"))
+
+            seconds_to_account_for = seconds_to_account_for - seconds_played
+
+
+

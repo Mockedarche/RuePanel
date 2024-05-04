@@ -30,8 +30,50 @@ def color_wipe(color_as_hex, wait_ms=0):
                 
     create_grid()
 
-def play_animation(file_name, side_length):
-    with open(file_name + ".ani", "r") as file:
+
+def itinerary_player(itinerary_file_name, side_length):
+    if len(itinerary_file_name) < 4:
+        print(("invalid itinerary file"))
+        sys.exit(1)
+
+    else:
+        extentsion_check = itinerary_file_name[-4:]
+        if extentsion_check.lower() != ".iti":
+            itinerary_file_name = itinerary_file_name + ".iti"
+
+
+    with open(itinerary_file_name, 'r') as file:
+        line = file.readline()
+
+        while line:
+            time_period = line.split()
+
+            file_path = " ".join(time_period[4:])
+
+            time_to_run = int(time_period[0]) - int(time_period[2])
+
+            start_time = time.time()
+
+            print("Should run for: " + str(time_to_run) + " seconds")
+            while(time.time() - start_time < time_to_run):
+                print("playing file: " + file_path)
+                play_animation(file_path, side_length, time.time() + time_to_run)
+
+            print("finished")
+            line = file.readline()
+            color_wipe(rgb_to_hex((0,0,0)), 0)
+
+def play_animation(file_name, side_length,  when_to_quit):
+    if len(file_name) < 4:
+        print("invalid animation file")
+        sys.exit(1)
+    else:
+        extentsion_check = file_name[-4:]
+        if extentsion_check.lower() != ".ani":
+            file_name = file_name + ".ani"
+
+
+    with open(file_name, "r") as file:
         line = file.readline()
         while True:
             line = file.readline()
@@ -69,9 +111,7 @@ def play_animation(file_name, side_length):
                 col = (index // rows)
                 
                 if col % 2 != 0:
-                    #print("entered")
                     row = translation_map[row]
-                    pass
                      
                      
                 #print("Row: " + str(row) + " Col: " + str(col))
@@ -83,20 +123,25 @@ def play_animation(file_name, side_length):
             
             create_grid()
             root.update()
-            
+
+            if when_to_quit != -1:
+                if time.time() >= when_to_quit:
+                    return
+
             end_time = time.time()  # Get the end time
             
             duration_ms = (end_time - start_time) * 1000  # Convert duration to milliseconds
 
-            print("Frame took: " + str(fps_interval_ms) + " / " + str(duration_ms))
+            print("Frame took: " + str(duration_ms)  + " / " + str(fps_interval_ms))
 
             if duration_ms < fps_interval_ms:
                 time.sleep((fps_interval_ms - duration_ms) / 1000)  # Convert back to seconds for sleep
+                
             else:
                 frames_that_lagged += 1
                 if print_flag:
                     print("FRAME TOOK TOO LONG TO PRINT BY: " + str(duration_ms - fps_interval_ms) + " ms")
-                    print_flag = False  # Turn off the flag to prevent repetitive printing
+                    #print_flag = False  # Turn off the flag to prevent repetitive printing
                     time.sleep(fps_interval_ms / 1000)  # Sleep for the full FPS interval
                 # Continue your existing loop
             
@@ -108,15 +153,14 @@ def play_animation(file_name, side_length):
             
         if not print_flag:
             print("There were a total of " + str(frames_that_lagged) + " frames that lagged or took longer to display than the FPS interval")
-            
-            
+
 
 
 # Set the size of the grid
-square_matrix_size = 8
+square_matrix_size = 16
 rows = square_matrix_size
 cols = square_matrix_size
-cell_size = int(1440 / square_matrix_size) 
+cell_size = int(1280 // square_matrix_size)
 
 # Initialize the colors of each cell
 colors = [[rgb_to_hex((255, 255, 255)) for _ in range(cols)] for _ in range(rows)]  # Initialize all cells to white
@@ -144,8 +188,9 @@ color_wipe(rgb_to_hex((0,0,0)))
 try:
 
     while True:
-        
-        play_animation("test2", rows)
+        print("Starting animation")
+        #play_animation("test", rows, -1)
+        itinerary_player("test", 16)
         color_wipe(rgb_to_hex((0,0,0)))
 
 except KeyboardInterrupt:
