@@ -10,7 +10,7 @@ GIFs
 
 ![](https://github.com/Mockedarche/RuePanel/blob/main/Media/16by16_example1.gif)
 
-8by8
+8 by 8
 
 ![](https://github.com/Mockedarche/RuePanel/blob/main/Media/final_hello_github.gif)
 
