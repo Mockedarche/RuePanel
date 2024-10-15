@@ -37,7 +37,8 @@ width = square_matrix_size
 height = square_matrix_size
 
 # Defines the amount to rotate the frame before printing NOTE hard coded and expected to be included in device registration
-rotate_k = 0
+# 3 is used for wall
+rotate_k = 3
 
 
 """
@@ -259,6 +260,8 @@ Assumptions - assumes that if square_side_length is the same as square_matrix_si
 def load_image_to_array(image_path_or_frame, color, calibrated_colors, square_side_length):
     """Load an image and convert it to a two-dimensional array of RGB values."""
 
+    red_boost = False
+
     if not isinstance(image_path_or_frame, Image.Image):
         # Open the image
         image = Image.open(image_path_or_frame)
@@ -288,6 +291,24 @@ def load_image_to_array(image_path_or_frame, color, calibrated_colors, square_si
     for y in range(local_height):
         for x in range(local_width):
             r, g, b = image.getpixel((x, y))
+
+            if red_boost:
+                if r > 5:
+                    r += 20
+
+                if b > 5:
+                    b += 30
+                g -= 5
+
+                if r > 255:
+                    r = 255
+
+                if b > 255:
+                    b = 255
+
+                if g < 0:
+                    g = 0
+
             if color is None:
                 if calibration_dictionary != None:
                     r, g, b = find_closest_color(calibrated_colors, r, g, b)
@@ -672,8 +693,15 @@ Clock methods
 def print_frame_to_file_debug(file_name, previous_image_array, current_image_array):
     height = len(current_image_array)
     width = len(current_image_array[0])
+    
+    if rotate_k != 0:
+        
+        previous_image_array = rotate_matrix(previous_image_array, rotate_k)
+        current_image_array = rotate_matrix(current_image_array, rotate_k)
+    
     # get what pixels to update from OUNP
     pixels_to_update  = only_update_necessary_pixels(previous_image_array, current_image_array)
+    
     with open(file_name + ".ani", "a") as file:
         file.write(" ")
         for x in range(width):  # Iterate over columns
@@ -689,6 +717,7 @@ def print_frame_to_file_debug(file_name, previous_image_array, current_image_arr
                     r1, g1, b1 = current_image_array[y][x]  # Access pixel at (x, y)
                     file.write(f"{count} {r1} {g1} {b1}, ")
         file.write("\n")
+
 
 def imprint_matrix(row, col, image_array, character, font_color, calibration_dictionary):
     character_array = []
@@ -734,35 +763,10 @@ def clock_generator(file_name, font_color, row_offset, col_offset, calbration_di
     previous_image_array = [[(0, 0, 0) for _ in range(square_matrix_size)] for _ in range(square_matrix_size)]
     # Create the blanked out image_array filled with black pixels
     current_image_array = [[(0, 0, 0) for _ in range(square_matrix_size)] for _ in range(square_matrix_size)]
-
-
-    for j in range(0, 60):
-        i = 12
-        first_digit = i // 10
-        if int(first_digit) == 1:
-            current_image_array = imprint_matrix(row_offset, col_offset, current_image_array, first_digit, font_color, calibration_dictionary)
-            second_digit = i % 10
-            current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 1) + 1, current_image_array, second_digit, font_color, calibration_dictionary)
-        else:
-            second_digit = i % 10
-            current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 1) + 1, current_image_array, second_digit, font_color, calibration_dictionary)
-
-
-        current_image_array = imprint_matrix(row_offset + 2, col_offset + (digit_col_length * 2) + 1, current_image_array, ':', font_color, calibration_dictionary)
-
-        third_digit = j // 10
-        current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 2) + 1 + colon_length, current_image_array, third_digit, font_color, calibration_dictionary)
-        fourth_digit = j % 10
-        current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 3) + 2 + colon_length, current_image_array, fourth_digit, font_color, calibration_dictionary)
-
-
-
-        print_frame_to_file_debug(file_name, previous_image_array, current_image_array)
-        previous_image_array = current_image_array
-        current_image_array = [[(0, 0, 0) for _ in range(width)] for _ in range(height)]
-
-    for i in range(1, 12):
+    
+    for k in range(0,2):
         for j in range(0, 60):
+            i = 12
             first_digit = i // 10
             if int(first_digit) == 1:
                 current_image_array = imprint_matrix(row_offset, col_offset, current_image_array, first_digit, font_color, calibration_dictionary)
@@ -773,16 +777,41 @@ def clock_generator(file_name, font_color, row_offset, col_offset, calbration_di
                 current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 1) + 1, current_image_array, second_digit, font_color, calibration_dictionary)
 
 
-            current_image_array = imprint_matrix(row_offset + 2, col_offset + (digit_col_length * 2) + 1, current_image_array, ':', font_color, calibration_dictionary)
+            current_image_array = imprint_matrix(row_offset + 1, col_offset + (digit_col_length * 2) + 1, current_image_array, ':', font_color, calibration_dictionary)
 
             third_digit = j // 10
-            current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 2)  + 1 + colon_length, current_image_array, third_digit, font_color, calibration_dictionary)
+            current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 2) + 1 + colon_length, current_image_array, third_digit, font_color, calibration_dictionary)
             fourth_digit = j % 10
             current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 3) + 2 + colon_length, current_image_array, fourth_digit, font_color, calibration_dictionary)
+
+
 
             print_frame_to_file_debug(file_name, previous_image_array, current_image_array)
             previous_image_array = current_image_array
             current_image_array = [[(0, 0, 0) for _ in range(width)] for _ in range(height)]
+
+        for i in range(1, 12):
+            for j in range(0, 60):
+                first_digit = i // 10
+                if int(first_digit) == 1:
+                    current_image_array = imprint_matrix(row_offset, col_offset, current_image_array, first_digit, font_color, calibration_dictionary)
+                    second_digit = i % 10
+                    current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 1) + 1, current_image_array, second_digit, font_color, calibration_dictionary)
+                else:
+                    second_digit = i % 10
+                    current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 1) + 1, current_image_array, second_digit, font_color, calibration_dictionary)
+
+
+                current_image_array = imprint_matrix(row_offset + 1, col_offset + (digit_col_length * 2) + 1, current_image_array, ':', font_color, calibration_dictionary)
+
+                third_digit = j // 10
+                current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 2)  + 1 + colon_length, current_image_array, third_digit, font_color, calibration_dictionary)
+                fourth_digit = j % 10
+                current_image_array = imprint_matrix(row_offset, col_offset + (digit_col_length * 3) + 2 + colon_length, current_image_array, fourth_digit, font_color, calibration_dictionary)
+
+                print_frame_to_file_debug(file_name, previous_image_array, current_image_array)
+                previous_image_array = current_image_array
+                current_image_array = [[(0, 0, 0) for _ in range(width)] for _ in range(height)]
 
 
 
@@ -836,7 +865,7 @@ calibration_dictionary = None
 
 # driver code that determines what type of animation the user wants and then walks them through the selections and creates the .ani file
 option = input("Please enter \n1 folders of images\n2 text \n3 gif \n4 video"
-                + "\n5 Effects \n6 24 hour clock\n7 itinerary\n:")
+                + "\n5 Effects \n6 24 hour clock\n7 itinerary\n8 single images\n:")
 
 # Create the blanked out image_array filled with black pixels
 image_array = [[(0, 0, 0) for _ in range(width)] for _ in range(height)]
@@ -978,7 +1007,7 @@ elif int(option) == 3:
 
         if remove_grid.lower() == 'y':
             remove_grid_from_gif(gif_name)
-            gif_name = "grid_removal/modified.gif"
+            #gif_name = "grid_removal/modified.gif"
 
         if custom_fps.lower() == 'n':
             # Get the frames per second from the GIF
@@ -1020,11 +1049,11 @@ elif int(option) == 3:
             previous_image_array = image_array
             image_array = load_image_to_array(frame, None, calibration_dictionary, square_matrix_size)
 
-            print_frame_to_file(file_name, previous_image_array, image_array)
+            print_frame_to_file_debug(file_name, previous_image_array, image_array)
 
         if insert_black_frame.lower() == 'y':
             image_array = [[(0, 0, 0) for _ in range(square_matrix_size)] for _ in range(square_matrix_size)]
-            print_frame_to_file(file_name, previous_image_array, image_array)
+            print_frame_to_file_debug(file_name, previous_image_array, image_array)
 
     else:
         # Prompt the user to input a folder containing GIF files
@@ -1084,7 +1113,7 @@ elif int(option) == 3:
                     previous_image_array = image_array
                     image_array = load_image_to_array(frame, None, calibration_dictionary, square_matrix_size)
 
-                    print_frame_to_file(file_path, previous_image_array, image_array)
+                    print_frame_to_file_debug(file_path, previous_image_array, image_array)
 
 
 
@@ -1126,6 +1155,7 @@ elif int(option) == 5:
     elif effect_option == 3:
         moving_lines(length_of_time, frame_rate, file_name, square_matrix_size, calibration_dictionary)
 
+# Clock
 elif int(option) == 6:
     if square_matrix_size <= 8:
         print("clock isn't able to be shown on such a small display\n")
@@ -1167,7 +1197,7 @@ elif int(option) == 6:
             file.write("\"\n")
             #TODO unblock
             #file.write("FPS: " + str("0.016666666667") + "\n")
-            file.write("FPS: " + str("1") + "\n")
+            file.write("FPS: " + str("24") + "\n")
             file.write("Length: " + str("1440") + "\n")
             file.write("Type: clock\n")
             file.write("Side_Length: " + str(square_matrix_size) + "\n")
@@ -1239,5 +1269,37 @@ elif int(option) == 7:
 
             seconds_to_account_for = seconds_to_account_for - seconds_played
 
+# single image
+elif int(option) == 8:
+    # Prompt the user for input
+    pictures_path = input("Please enter the pictures path: ") + "/"
+
+    file_name = input("Please enter the name for the output file: ")
+
+    # Prepare the file path
+    file_path = file_name + ".ani"
+
+    calibration_dictionary = None
+
+    # Remove the file if it already exists
+    if os.path.exists(file_path):
+        os.remove(file_path)
+        print("File deleted successfully.")
+    else:
+        print("File does not exist.")
+
+    # Write animation metadata to the file
+    with open(file_name + ".ani", "a") as file:
+        file.write("\"\n")
+        file.write("\"\n")
+        file.write("FPS: 1" + "\n")
+        file.write("Length: 1" + "\n")
+        file.write("Type: image\n")
+        file.write("Side_Length: " + str(square_matrix_size) + "\n")
 
 
+    previous_image_array = image_array
+
+    image_array = load_image_to_array(pictures_path, None, calibration_dictionary,
+                                          square_matrix_size)
+    print_frame_to_file(file_name, previous_image_array, image_array)
