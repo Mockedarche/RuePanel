@@ -5,9 +5,21 @@ import sys
 import random
 from datetime import datetime, timedelta
 
+
+"""
+Function: rgb_to_hex - takes a given rgb value and correctly formats it for use on the tkinter gui
+Expects: Expects that the rgb value is correct and valid
+Does: Given a rgb value returns it formatted for tkinter
+"""
 def rgb_to_hex(rgb):
     return '#{:02x}{:02x}{:02x}'.format(rgb[0], rgb[1], rgb[2])
 
+
+"""
+Function: create_grid - Using the created canvas it creates the grid that emulates the pixels of our panel (dynamic size)
+Expects: Expects the canvas, cell_size, row, and col to all correctly be initialized
+Does: Creates the tkinter gui's grid emulating the LED panel
+"""
 def create_grid(event=None):
     # Clear previous grid items
     canvas.delete("grid")
@@ -21,6 +33,11 @@ def create_grid(event=None):
                                      fill=color, outline='black', tags="grid")
 
 
+"""
+Function: color_wipe - Takes a color and wait_ms parameter (defaults to 0) and changes all emulated pixels to be that color
+Expects: Expects color_as_hex, canvas, rows, cols to be initialized 
+Does: Changes all emulated pixels on the gui to be the given color
+"""
 def color_wipe(color_as_hex, wait_ms=0):
     for i in range(0, rows):
         for j in range(0, cols):
@@ -32,7 +49,12 @@ def color_wipe(color_as_hex, wait_ms=0):
                 
     create_grid()
     
-    
+
+"""
+Function: get_random_color() - Returns a random color tuple as a HEX
+Expects: NONE
+Does: Returns a random color tuple as a HEX
+"""
 def get_random_color():
     colors = {
     "black": (0, 0, 0),
@@ -92,6 +114,12 @@ def get_random_color():
     
     return rgb_to_hex(random.choice(list(colors.values())))
 
+
+"""
+Function: itinerary_player - Simply orchestrates the playing of .ani files in a order and time denotes by the given .ini file
+Expects: Expects the emulated panel be correctly initialized as well as the given .ini file be in correct format and pointing to real .ani files
+Does: Plays various .ani files denoted by the .ini file onto the emulated LED panel (Tkinter GUI)
+"""
 def itinerary_player(itinerary_file_name, side_length):
     if len(itinerary_file_name) < 4:
         print(("invalid itinerary file"))
@@ -215,7 +243,11 @@ def play_animation(file_name, side_length,  when_to_quit):
         if not print_flag:
             print("There were a total of " + str(frames_that_lagged) + " frames that lagged or took longer to display than the FPS interval")
 
-
+"""
+Function: temp_test - Emulates the displaying of temperature on the emulated LED panel (Tkinter GUI)
+Expects: Expects the tkinter gui, side_length, and temperature be intialized and valid
+Does: Displays a given temperature on the emulated LED panel (Tkiner GUI)
+"""
 def temp_test(side_length, temperature):
     # temperature = 55
 
@@ -337,6 +369,11 @@ def temp_test(side_length, temperature):
         row_count = row_count + 1
 
 
+"""
+Function: clock_player - Main driver that runs the emulated panels loop. Updates time and temperature on the panel
+Expects: file_name, side_length, when_to_quit, rainbow_clock, aswell as the tkinter gui be correctly intiialized
+Does: Runs main loop of either playing the .ani or displaying typical clock information with temperature
+"""
 def clock_player(file_name, side_length, when_to_quit, rainbow_clock):
     temperature = 55
     # Get the current time
@@ -451,6 +488,8 @@ def clock_player(file_name, side_length, when_to_quit, rainbow_clock):
                     time.sleep(fps_interval_ms / 1000)  # Sleep for the full FPS interval
                 # Continue your existing loop
             """
+
+
 
 # Set the size of the grid
 square_matrix_size = 16

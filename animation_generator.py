@@ -19,7 +19,6 @@ Taking a video and converting it to .ani
 Daily information at a glance with background gif, images, or videos
 At a glance panel that will show local temperature, weather, sunrise, sunset, etc
 
-hopefully preview functionality (aka connect to the client and send commands in realtime before finalizing a .ani)
 
 """
 from PIL import Image, ImageSequence
@@ -73,6 +72,12 @@ primary_colors = {
 }
 
 # picks a random color from our primary color and if calibration dictionary is initialized it calibrates the color and returns it else just returns it
+"""
+Function_Helper: pick_random_color - Helper function to quickly pick a random color from the primary_color dictionary
+Expects: primary_colors be correctly intialized
+Does: Returns a random element from primary_colors
+
+"""
 def pick_random_color():
     color_name = random.choice(list(primary_colors.keys()))
 
@@ -91,6 +96,12 @@ calibration_dictionary = None
 
 """
 Color name to RGB values
+"""
+"""
+Function_Helper: get_color_rgb_load recieves a colors name and quickly returns a tuple containing its RGB values
+Expects: None
+Does: Returns the color_names corresponding RGB values as a tuple
+
 """
 # color helper function to quickly convert a color's name to it's RGB values (in integers)
 def get_color_rgb_load(color_name):
@@ -137,6 +148,12 @@ def get_color_rgb_load(color_name):
 """
 Calibration
 """
+"""
+Function_Helper: find_closest_color takes a calibrated_color translator, R,G, and B values and using euclidean shortest distance returns the most similar color
+Expects: calibrated_colors be correctly calibrated as well as r, g, and b be within the range for a RGB value
+Does: Returns the closest color to a given color using calibrated_colors 
+
+"""
 # Function to find the closest color in the calibrated colors dictionary based on RGB values
 def find_closest_color(calibrated_colors, r, g, b):
     # Initialize variables
@@ -175,6 +192,12 @@ These are used as helpers to remove the grid found on gifs downloaded from the v
 Still in beta (working script needs better integration (handling file names through the process)
 
 """
+"""
+Function_Helper: get_most_common_color - Is used to get the most common color in a grid of 20 by 20 useful for removing a grid imposed on some gifs/images
+Expects: Image be correctly initialized, grid_x, and grid_y be valid indexes of the 16 by 16 image
+Does: Returns the most common color in a grid of 20 by 20 given the image 
+
+"""
 # Gets the most common color of the 16 by 16 (grids) image thats been scaled to 320 by 320
 def get_most_common_color(image, grid_x, grid_y):
     # Get the dimensions of the image
@@ -201,6 +224,11 @@ def get_most_common_color(image, grid_x, grid_y):
     return most_common_color
 
 # Removes the grid imposed on the frames of the given gif
+"""
+Function: remove_grid_from_gif - Takes a gifs path and then iterates through each frame removing the grid from the frame and saving it to the gifs
+Expects: gif_path point to a gif file 
+Does: Removes the grid imposed on a 16 by 16 orignal resolution gif
+"""
 def remove_grid_from_gif(gif_path):
     print("Processing:", gif_path)
     # Open the GIF
@@ -255,6 +283,12 @@ image path/ image to matrix
 
 Assumptions - assumes that if square_side_length is the same as square_matrix_size then it should check to resize the image
     if it's not then it doesn't resize
+"""
+"""
+Function: load_image_to_array - Takes a image, color, calibrated_colors, and the matrixes sides length and loads the image into a matrix
+Expects: image_path_or_frame, color, calibrated, colors, and square_side_length be correctly initialized 
+Does: Loads a image into a matrix of size square_side_length * square_side_length and returns it
+
 """
 # take an image's path and convert it to a array of RGB values (or take it's shape as one color)
 def load_image_to_array(image_path_or_frame, color, calibrated_colors, square_side_length):
@@ -331,6 +365,12 @@ def load_image_to_array(image_path_or_frame, color, calibrated_colors, square_si
 rotate_matrix is used for ease of use while rather inefficient it quickly allows a user to rotate their display
 to improve ergonomics, functionality, and ease of use
 """
+"""
+Function_Helper: rotate_matrix - Takes a matrix and the rotate_k and rotates it by 90 degrees rotate_k times using numpy
+Expects: the matrix be a square
+Does: returns a k times 90 degrees rotated_matrix of the orignally passed matrix
+
+"""
 def rotate_matrix(matrix, rotate_k):
     # Convert the matrix to a NumPy array
     np_matrix = np.array(matrix)
@@ -347,7 +387,14 @@ In short this is the easiest quickest way to drastically (varies a lot on conten
 but also the amount of pixels to change per frame. Meaning either much larger matrixes can be updated at the same FPS
 or much higher FPS can be achieved.
 
-Potential to improve. Look for ways to remove even more unecessary updates by looking for small changes in color (imperceptible)
+Potential to improve. Look for ways to remove even more unnecessary updates by looking for small changes in color (imperceptible)
+"""
+"""
+Function: only_update_necessary_pixels - This function takes the previous frame (in a series of frames) and the current frame and returns
+a matrix containing boolean values indicating if the pixel in each corresponding index has changed (indicating we need to update information)
+Expects: previous_image_array, and current_image_array are matrixes same size matrixes and matrixes holding color information
+Does: Returns a boolean matrix indicating which indexes colors changed from the previous and current frames
+
 """
 # Function to determine which pixels need to be updated in the animation frame
 def only_update_necessary_pixels(previous_image_array, current_image_array):
@@ -384,6 +431,14 @@ def only_update_necessary_pixels(previous_image_array, current_image_array):
 """
 Image_array/.ani printer
 takes the previous frame, current frame, and the .ani file name and writes the current frame to the file 
+
+"""
+"""
+Function: print_frame_to_file - Take a file_name, previous_image_array, and current_image_array indicates what pixels are 
+changed and writes it to a .ani file in .ani file format
+Expects: file_name, previous_image_array, and current_image_array are initialized and containing valid information 
+(path exists and matrixes contain color information and are same size) 
+Does: Prints the changes between the frames in .ani format
 
 """
 # takes the image_array (array of a images RGB values) and prints it to the .ani file
@@ -426,12 +481,25 @@ EFFECTS
 """
 falling astroids helpers
 """
+"""
+Function_Helper: probability_check generates a random number within the given numerator and denominator and returns 
+if the random number is less than the numerator. AKA coinflip with probability indicated by numerator and denominator
+Expects: numerator, and denominator are intiailized and importantly dictate a valid probability
+Does: Returns a coinflip with probability indicated by the numerator and denomiator
+
+"""
 def probability_check(numerator, denominator):
     # Generate a random number between 0 and denominator - 1
     random_number = random.randint(0, denominator - 1)
     # Check if the random number falls within the probability range
     return random_number < numerator
 
+"""
+Function_Helper: sift_down - simply takes a matrix and shifts each matrixes index down (REMOVING TOP ROW)
+Expects: matrix be intiailzied and contain color information
+Does: Returns the given matrix of colors with each index shifted down in Y axis
+
+"""
 def shift_down(matrix):
     # Get the dimensions of the matrix
     rows = len(matrix)
@@ -451,6 +519,13 @@ def shift_down(matrix):
 
 """
 Falling astroids function
+"""
+"""
+Function: failing_astroids_effect - takes the time, framerate, filename, matrix side length, and calibration dictionary 
+and makes length_of_time * frame_rate number of frames of the falling_astroids_effect saving them to the given .ani file_name
+Expects: length_of_time, frame_rate, file_name, square_matrix,size, and calibration file all correctly intiialized
+Does: Makes a .ani file containing frame data demonstrating the falling_astroids_effect
+
 """
 def falling_astroids_effect(length_of_time, frame_rate, file_name, square_matrix_size, calbration_dictionary):
     probability = int(input("Please enter the probability of of 100: "))
@@ -502,6 +577,13 @@ def falling_astroids_effect(length_of_time, frame_rate, file_name, square_matrix
 
 """
 Placeholder as realistically need higher pixel panel to make
+"""
+"""
+Function: bouncing_ball - given length_of_time, frame_rate, file_name, and square_matrix_size and makes frames 
+showcasing a bouncing ball saving them to the .ani file_name
+Expects: length_of_time, frame_rate, file_name, square_matrix_size all correctly initialized
+Does: Prints frames to the given file_name .ani showcasing a ball bouncing around
+
 """
 def bouncing_ball(length_of_time, frame_rate, file_name, square_matrix_size, calibration_dictionary):
     direction_dictionary = {'down': (1, 0), 'up': (-1, 0), 'right': (0, 1), 'left': (0, -1), 'down_right': (1, 1),
@@ -621,6 +703,12 @@ def bouncing_ball(length_of_time, frame_rate, file_name, square_matrix_size, cal
 """
 Moving lines helper function
 """
+"""
+Function_Helper: array_to_matrix - takes the image_array, and converts it to a matrix
+Expects: image_array, rows, and cols all are initialized
+Does: returns the image_array as a matrix
+
+"""
 def array_to_matrix(image_array, rows, cols):
     matrix = []
     for i in range(0, len(image_array), cols):
@@ -629,6 +717,13 @@ def array_to_matrix(image_array, rows, cols):
 
 """
 Moving lines function
+"""
+"""
+Function: moving_lines - takes length_of_time, frame_rate, file_name, and square_matrix_size and creates frames 
+showcasing colors lines moving across the panel printing these frames to the indicated .ani file
+Expects: length_of_time, frame_rate, file_name, square_matrix_size are all correctly initialized
+Does: Prints frames containing color lines moving around the panel to the indicated .ani file_name
+
 """
 def moving_lines(length_of_time, frame_rate, file_name, square_matrix_size, calibration_dictionary):
     length_of_line = input("Please enter the number of pixels each line should be: ")
@@ -670,6 +765,12 @@ End effects
 """
 GIF helper
 """
+"""
+Function_Helper: get_gif_fps returns the fps of the given gif file_name
+Expects: file_path point to a valid gif file
+Does: returns the fps of the indicated gif file_name
+
+"""
 # gets the gif's FPS
 def get_gif_fps(file_path):
     with Image.open(file_path) as img:
@@ -677,6 +778,12 @@ def get_gif_fps(file_path):
         fps = 1000 / duration  # Convert duration from milliseconds to seconds
         return fps
 
+"""
+Function_Helper: get_gif_number_of_frames returns how many frames are in the gif file_name
+Expects: file_name points to a valid gif file
+Does: returns the number of frames in the gif
+
+"""
 # gets the number of frames in a gif
 def get_gif_number_of_frames(file_path):
     with Image.open(file_path) as img:
@@ -690,6 +797,13 @@ Clock methods
 
 """
 # takes the image_array (array of a images RGB values) and prints it to the .ani file
+"""
+Function_debug: print_frame_to_file_debug performs the same operation as print_frame_to_file except doesn't perform
+OUNP for debugging reasons
+Expects: same as print_frame_to_file
+Does: same as print_frame_to_file
+
+"""
 def print_frame_to_file_debug(file_name, previous_image_array, current_image_array):
     height = len(current_image_array)
     width = len(current_image_array[0])
@@ -718,7 +832,12 @@ def print_frame_to_file_debug(file_name, previous_image_array, current_image_arr
                     file.write(f"{count} {r1} {g1} {b1}, ")
         file.write("\n")
 
+"""
+Function_Helper: imprint_matrix - takes a image_array and imprints the given character onto the image_array
+Expects: image_array, row, col, character, font_color, and calibration dictionary are all intialized
+Does: Returns the image_array except with the indicated character imprinting onto the array in the position specifiied by row and col
 
+"""
 def imprint_matrix(row, col, image_array, character, font_color, calibration_dictionary):
     character_array = []
 
@@ -753,7 +872,13 @@ def imprint_matrix(row, col, image_array, character, font_color, calibration_dic
     image_array = image_array.tolist()
     return image_array
 
+"""
+Function: clock_generator - takes a file_name, font_color, row_offset, col_offset and generates the .ani for 
+a clock from midnight to midnight
+Expects: file_name, font_color, row_offset, col_offset are all valid and initialized
+Does: generates frames of each minute of a clock from midnight to midnight and prints the frame data to a .ani file_name
 
+"""
 def clock_generator(file_name, font_color, row_offset, col_offset, calbration_dictionary):
 
     digit_col_length = 3
@@ -819,6 +944,9 @@ def clock_generator(file_name, font_color, row_offset, col_offset, calbration_di
 Calibration File Reader - NOTE CURRENTLY UNUSED AS COLOR quality was significantly better than expected but code is functional
 """
 # Function to read calibration data from a file and store it in a dictionary
+"""
+DEPRECATED to be removed
+"""
 def read_calibration_file(filename):
     # Initialize an empty dictionary to store color calibration data
     colors = {}

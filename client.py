@@ -6,6 +6,8 @@ from rpi_ws281x import *
 from datetime import datetime, timedelta
 import requests
 import heapq
+import socket
+import Adafruit_DHT
 
 
 """
@@ -29,6 +31,9 @@ LED_CHANNEL    = 0       # set to '1' for GPIOs 13, 19, 41, 45 or 53
 pixel_array = Color(0,0,0) * LED_COUNT
 
 total_times_queried_temperature = 0
+
+DHT_SENSOR = Adafruit_DHT.DHT22
+DHT_PIN = 4
 
 
 """ 
@@ -198,7 +203,6 @@ def play_animation(strip, file_name, side_length, when_to_quit):
 Function: rotate_matrix - Given a matrix, and k ( k = // 90 degrees) 
 Expects: Expects the matrix to be square and k to be a integer
 Does: Rotates the matrix by 90 degrees for EACH K 
-
 """
 def rotate_matrix(matrix, k):
     def rotate_90(matrix):
@@ -218,7 +222,6 @@ def rotate_matrix(matrix, k):
 Function: get_color - Returns a tuple from the list of tuples (colors), note list isn't ordered
 Expects: Expects index to correctly be within the size of the colors list
 Does: Given a index return the corresponding tuple in the colors list
-
 """
 def get_color(index):
 
@@ -280,7 +283,11 @@ def get_color(index):
     r, g, b = colors[index][1]
     return Color(r, g, b)
 
-
+"""
+Function: add_time_card - simple function just adds a timecard to our heap (thats used to schedule tasks)
+Expects: Expects that the time_card_heap has been correctly initialized
+Does: Adds the card to the time_card_heap
+"""
 def add_time_card(when_card_should_be_ran, task_description):
     global time_card_heap
     heapq.heappush(time_card_heap, (when_card_should_be_ran, task_description))
@@ -291,7 +298,7 @@ def add_time_card(when_card_should_be_ran, task_description):
 Function: get_weather - Using tomorrow.io's weather api get the current temperature and condition for the given longitude and latitude
 Expects: Expects nothing
 Does: Returns the current temperature and condition
-
+"""
 """
 def get_weather():
     global total_times_queried_temperature
@@ -299,7 +306,7 @@ def get_weather():
     print("Temperature queried current count: " + str(total_times_queried_temperature))
 
     # TODO REMOVE BEFORE UPLOADING MAKE SURE TO GET ALL 3
-    api_key = "Place your api key here"
+    api_key = "ADD your token here"
     lat = 0
     lon = 0
 
@@ -359,17 +366,42 @@ def get_weather():
     condition = weather_conditions.get(weather_code, "Unknown")
 
     return temperature, condition
+"""
+
+"""
+Function: get_temperature_humidity - uses the DHT22 using the globally scoped sensor and pin variables. Using the DHT22 it gets the temperature (in F) and humidity and returns it
+Expects: Expects that the DHT_SENSOR and DHT_PIN is correctly wired to a working DHT22 NOTE catches an error by passing the previous temperature and making humidity 0
+Does: Using the DHT22 returns the temperature and humidity if no error occurs. If an error occurs returns previous temperature and humidity as 0
+"""
+def get_temperature_humidity():
+    global temperature
+
+
+    humidity, new_temperature = Adafruit_DHT.read(DHT_SENSOR, DHT_PIN)
+
+    if humidity is not None and new_temperature is not None:
+        new_temperature = new_temperature * (9 / 5) + 32.0
+        new_temperature = int(new_temperature)
+        humidity = int(humidity)
+        #print("Returned temperature")
+        temperature = new_temperature
+        return new_temperature, humidity
+
+    else:
+        return temperature, 0
+
+
+
 
 """
 Function: update_temperature_on_panel - Updates the temperature on the panel to current result if enough time has passed
 Expects: Expects the strip and translation_map to be correct initialized, side_length, temperature, and desired color to be valid data
 Does: Updates the temperature on the panel to what is current given enough time has passed
-
 """
 def update_temperature_on_panel(matrix):
     debug = False
-    temperature, condition = get_weather()
 
+    temperature, humidity = get_temperature_humidity()
 
     digit_matrices = {
         '0': [
@@ -496,9 +528,9 @@ def update_temperature_on_panel(matrix):
         print("Completed temperature frame")
 
     # Add the time_card for when to update time again
-    current_time = datetime.now().replace(second=0, microsecond=0)
+    current_time = datetime.now()
 
-    time_to_add = timedelta(minutes=5)
+    time_to_add = timedelta(seconds=10)
 
     time_to_update = current_time + time_to_add
 
@@ -506,7 +538,11 @@ def update_temperature_on_panel(matrix):
 
     return matrix
 
-
+"""
+Function update_time_on_panel - takes the given matrix that holds the time and updates it to hold the current time
+Expects: Expects that matrix is intialized and of the correct size 
+Does: Updates the time on the given matrix
+"""
 def update_time_on_panel(matrix):
     debug = False
 
@@ -653,9 +689,9 @@ def helper_is_black(color):
     return color == 0x000000
 
 """
-Function:
-Expects:
-Does:
+Function: change_clocks_color - Simply changes the strips color (goes through the entire strip and changes all non black colors to the desired color_
+Expects: Expects strip and desired_color to be correctly initializaed 
+Does: Changes all the pixels on the strip that aren't black to the desired color
 
 """
 def change_clocks_color(strip, desired_color):
@@ -666,6 +702,11 @@ def change_clocks_color(strip, desired_color):
 
     strip.show()
 
+"""
+Function: compositor - functions as a typical compositor would. AKA Laying multiple images (matrixes) onto a display (strip)
+Expects: Expects strip, matrixes, translation_map, and the desired color be correctly intialized 
+Does: Compsites the panel using multiple matrixes, translation_map (matrix to strip), and the desired color
+"""
 def compositor(strip, matrixes, translation_map, desired_color):
     debug = False
 
@@ -714,6 +755,7 @@ Does: Sets up and updates the clock to display the current time and temperature 
 def clock_player(strip, side_length, time_card_heap):
     global brightness
     desired_color = Color(255, 0, 0)
+    color_position = 0
     
     # Get the current time
     now = datetime.now()
@@ -797,6 +839,20 @@ def clock_player(strip, side_length, time_card_heap):
                 brightness = 0
                 print("Changed Brightness to " + str(brightness))
 
+            # Change the panels color up 1 position
+            elif event.value == 67:
+                if color_position < 51:
+                    color_position += 1
+                    desired_color = get_color(color_position)
+                    compositor(strip, matrixes, translation_map, desired_color)
+
+            # Change the panels color down a position
+            elif event.value == 68:
+                if color_position > 0:
+                    color_position -= 1
+                    desired_color = get_color(color_position)
+                    compositor(strip, matrixes, translation_map, desired_color)
+
         time.sleep(0.0166)
 
 
@@ -819,14 +875,23 @@ if __name__ == '__main__':
     global brightness
     global dev
     global time_card_heap
+    global temperature
+
+    temperature = 10
 
     dev = get_ir_device()
 
-    brightness = int(input("Please enter the desired brightness (max 35): "))
+    #brightness = int(input("Please enter the desired brightness (max 35): "))
 
     time_card_heap = []
 
+
     brightness = 35
+
+
+    # 35 max
+    change_brightness(strip, brightness)
+    clock_player(strip, 16, time_card_heap)
 
     if brightness > 35:
         brightness = 35
@@ -886,3 +951,4 @@ if __name__ == '__main__':
             break
             
     
+    #colorWipe(strip, Color(0, 0, 0), 10)
