@@ -1,13 +1,29 @@
+"""
+client.py - A simple client that runs the panel given all elements are correctly wired and intiailizable
+# Description: This file is used to control the LED panel. It is responsible for setting up the LED strip, playing animations, and handling user input.
+
+Supports
+    Very limited on hardware support (only supports the Raspberry Pi), and exact same wire diagram, and hardware (will change in future)
+    Limited on software support, no app, no configuration wizard, and honestly very barebones in general BUT does function
+
+Future goals - Add more hardware support, add more software support, adjustable wiring, reading from config, and more support for non-my exact hardware
+
+"""
+
+
+
 import time
 import sys
 import random
-import evdev
-from rpi_ws281x import *
+import evdev # type: ignore
+from rpi_ws281x import * # type: ignore
 from datetime import datetime, timedelta
-import requests
+import requests # type: ignore
 import heapq
 import socket
-import Adafruit_DHT
+import Adafruit_DHT # type: ignore
+import threading
+import os
 
 
 """
@@ -28,13 +44,24 @@ LED_INVERT     = False   # True to invert the signal (when using NPN transistor 
 LED_CHANNEL    = 0       # set to '1' for GPIOs 13, 19, 41, 45 or 53
 
 
-pixel_array = Color(0,0,0) * LED_COUNT
+pixel_array = Color(0,0,0) * LED_COUNT # type: ignore
 
 total_times_queried_temperature = 0
 
 DHT_SENSOR = Adafruit_DHT.DHT22
 DHT_PIN = 4
 
+
+def listen_for_packets():
+    # Set up the server
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    server_socket.bind(('192.168.50.57', 12345))
+
+    while True:
+        data, addr = server_socket.recvfrom(1024)
+        print(f"Received packet from {addr}: {data.decode()}")   
+        if data.decode() == "print_done":
+            add_time_card(datetime.now(), "Print Done")
 
 """ 
 Function: get_ir_device - Used to initialize the ir device 
@@ -77,6 +104,20 @@ def color_wipe(strip, color, wait_ms=0):
             time.sleep(wait_ms / 1000)
     strip.show()
 
+"""
+Function: colorless_wipe - Used to set the entire panel to be black without updating (mostly used to clearing it of color)
+Expects: Expects that strip is initialized
+Does: Sets the entire panel to black without updating it
+
+"""
+def colorless_wipe(strip):
+    black = Color(0, 0, 0)
+    """Wipe color across display a pixel at a time."""
+    for i in range(strip.numPixels()):
+        strip.setPixelColor(i, black)
+
+       
+
 
 """
 Function: itinerary_player - using a ini file it plays various pointed ani files on the panel (following a itinerary dictated)
@@ -114,7 +155,7 @@ def itinerary_player(itinerary_file_name, strip, side_length):
 
             print("finished")
             line = file.readline()
-            colorWipe(strip, Color(0,0,0), 0)
+            colorWipe(strip, Color(0,0,0), 0) # type: ignore # type: ignore
 
 
 
@@ -124,7 +165,8 @@ Expects: Expects the strip to be correctly initialized, file_name to be valid, s
 Does:
 
 """
-def play_animation(strip, file_name, side_length, when_to_quit):
+def play_animation(strip, file_name, side_length, looping):
+    colorless_wipe(strip) # type: ignore
     if len(file_name) < 4:
         print("invalid animation file")
         sys.exit(1)
@@ -150,7 +192,7 @@ def play_animation(strip, file_name, side_length, when_to_quit):
             print("THIS ANIMATION FILE ISN'T MADE FOR A MATRIX OF THIS SIZE")
             exit()
 
-        print_flag = True
+        print_flag = False
         frames_that_lagged = 0
 
         fps_interval_ms = 1000.0 / float(fps)
@@ -165,21 +207,18 @@ def play_animation(strip, file_name, side_length, when_to_quit):
             for i in pixels:
                 #print(i)
                 pixel_details = i.split(" ")
-                strip.setPixelColor(int(pixel_details[1]), Color(int(pixel_details[2]), int(pixel_details[3]), int(pixel_details[4])))
+                strip.setPixelColor(int(pixel_details[1]), Color(int(pixel_details[2]), int(pixel_details[3]), int(pixel_details[4]))) # type: ignore
                 
                 
             line = file.readline()
             strip.show()
 
-            if when_to_quit != -1:
-                if time.time() >= when_to_quit:
-                    return
-            
             end_time = time.time()  # Get the end time
             
             duration_ms = (end_time - start_time) * 1000  # Convert duration to milliseconds
 
-            print("Frame took: " + str(duration_ms)  + " / " + str(fps_interval_ms))
+            if print_flag:
+                print("Frame took: " + str(duration_ms)  + " / " + str(fps_interval_ms))
 
             if duration_ms < fps_interval_ms:
                 time.sleep((fps_interval_ms - duration_ms) / 1000)  # Convert back to seconds for sleep
@@ -192,10 +231,10 @@ def play_animation(strip, file_name, side_length, when_to_quit):
                 # Continue your existing loop
 
             
-        if kind != "gif":
-            colorWipe(strip, Color(0,0,0))
+        colorless_wipe(strip) # type: ignore
+        
             
-        if not print_flag:
+        if print_flag:
             print("There were a total of " + str(frames_that_lagged) + " frames that lagged or took longer to display than the FPS interval")
             
 
@@ -281,7 +320,7 @@ def get_color(index):
     ]
 
     r, g, b = colors[index][1]
-    return Color(r, g, b)
+    return Color(r, g, b) # type: ignore
 
 """
 Function: add_time_card - simple function just adds a timecard to our heap (thats used to schedule tasks)
@@ -679,6 +718,19 @@ def update_time_on_panel(matrix):
     return matrix
 
 
+
+"""
+Function: print_done - Is called whenever a print done packet is recieved it then sets panel to display this fact
+Expects: Expects strip to be correctly initialized
+Does: Sets the panel to display that the print is done
+
+"""
+def print_done(strip):
+    desired_color = Color(0, 255, 0) # type: ignore
+    color_wipe(strip, desired_color, 1000)
+
+
+
 """
 Function/helper: helper_is_black - returns if a passed color is black
 Expects: Expects nothing
@@ -710,7 +762,7 @@ Does: Compsites the panel using multiple matrixes, translation_map (matrix to st
 def compositor(strip, matrixes, translation_map, desired_color):
     debug = False
 
-    color_black = Color(0,0,0)
+    color_black = Color(0,0,0) # type: ignore # type: ignore
     """Wipe color across display a pixel at a time."""
     for i in range(strip.numPixels()):
         strip.setPixelColor(i, color_black)
@@ -744,6 +796,42 @@ def compositor(strip, matrixes, translation_map, desired_color):
 
     strip.show()
 
+"""
+Function: random_gif_helper - Given a directory it returns a list of all the files in the directory
+Expects: Expects the directory to be valid
+Does: Returns a list of all files in the directory
+"""
+
+def random_gif_helper(directory):
+    try:
+        # Get a sorted list of all files in the directory (excluding subdirectories)
+        files = [file for file in os.listdir(directory) if os.path.isfile(os.path.join(directory, file))]
+        return sorted(files)  # Sort the files to ensure consistent order
+    except FileNotFoundError:
+        print(f"The directory {directory} was not found.")
+        return []
+    except PermissionError:
+        print(f"Permission denied to access {directory}.")
+        return []
+
+
+
+"""
+Function: delete_file - Given a file path it deletes the file
+Expects: Expects the file path to be valid
+Does: Deletes the file at the given file path
+"""
+def delete_file(file_path):
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            print(f"Deleted: {file_path}")
+        else:
+            print(f"File not found: {file_path}")
+    except PermissionError:
+        print(f"Permission denied: {file_path}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
 
 
 """
@@ -754,8 +842,10 @@ Does: Sets up and updates the clock to display the current time and temperature 
 """
 def clock_player(strip, side_length, time_card_heap):
     global brightness
-    desired_color = Color(255, 0, 0)
+    desired_color = Color(255, 0, 0) # type: ignore
     color_position = 0
+    random_gif_position = 0
+    random_gif_directory = "random_gif_anis"
     
     # Get the current time
     now = datetime.now()
@@ -813,6 +903,8 @@ def clock_player(strip, side_length, time_card_heap):
                 elif first_task_description == "Temperature":
                     matrixes[1] = update_temperature_on_panel(temperature_matrix)
                     compositor(strip, matrixes, translation_map, desired_color)
+                elif first_task_description == "Print Done":
+                    print_done(strip)
                 else:
                     print("Invalid desired task no task called " + first_task_description)
 
@@ -821,7 +913,7 @@ def clock_player(strip, side_length, time_card_heap):
             print("Received commands", event.value)
             # Turn brightness up
             if event.value == 9:
-                if brightness < 35:
+                if brightness < 45:
                     change_brightness(strip, (brightness + 1))
                     brightness += 1
                     print("Changed Brightness to " + str(brightness))
@@ -852,8 +944,62 @@ def clock_player(strip, side_length, time_card_heap):
                     color_position -= 1
                     desired_color = get_color(color_position)
                     compositor(strip, matrixes, translation_map, desired_color)
+            elif event.value == 74:
+                if len(random_gif_helper(random_gif_directory)) == 0:
+                    print("No gifs found")
+                else:
+                    random_gif_position += 1
+                    if len(random_gif_helper(random_gif_directory)) == random_gif_position:
+                        random_gif_position = 0
+                    play_animation(strip, "random_gif_anis/" + random_gif_helper(random_gif_directory)[random_gif_position], 16, -1)
+                    compositor(strip, matrixes, translation_map, desired_color)
 
-        time.sleep(0.0166)
+            elif event.value == 66:
+                if len(random_gif_helper(random_gif_directory)) == 0:
+                    print("No gifs found")
+                else:
+                    if random_gif_position > 0:
+                        random_gif_position -= 1
+                    play_animation(strip, "random_gif_anis/" + random_gif_helper(random_gif_directory)[random_gif_position], 16, -1)
+                    compositor(strip, matrixes, translation_map, desired_color)
+            
+            elif event.value == 28:
+                if len(random_gif_helper(random_gif_directory)) == 0:
+                    print("No gifs found")
+                else:
+                    play_animation(strip, "random_gif_anis/" + random_gif_helper(random_gif_directory)[random_gif_position], 16, -1)
+                    compositor(strip, matrixes, translation_map, desired_color)
+                    time.sleep(1)
+
+            elif event.value == 82:
+                altmode = False
+                if altmode:
+                    time.sleep(1)
+                    if len(random_gif_helper(random_gif_directory)) == 0:
+                        print("No gifs found")
+                    else:
+                        delete_file("random_gif_anis/" + random_gif_helper(random_gif_directory)[random_gif_position])
+                else:
+                    while dev.read_one():
+                        pass  # Discard all stacked events
+                    while True:
+                        event = dev.read_one()
+                        if event and event.value == 82:
+                            compositor(strip, matrixes, translation_map, desired_color)
+                            break
+                        else:
+                            play_animation(strip, "random_gif_anis/" + random_gif_helper(random_gif_directory)[random_gif_position], 16, 1)
+
+            # **Clear out any remaining queued IR events**  
+            while dev.read_one():
+                pass  # Discard all stacked events
+
+
+        first_task_time, first_task_description = time_card_heap[0]
+        # time to do a task
+        if first_task_time >= current_time:
+            time.sleep(0.0166)
+
 
 
 
@@ -867,10 +1013,16 @@ Does: Sets up ir_device, strip, etc for the panel to function
 """
 if __name__ == '__main__':
 
+    
     # Create NeoPixel object with appropriate configuration.
-    strip = Adafruit_NeoPixel(LED_COUNT, LED_PIN, LED_FREQ_HZ, LED_DMA, LED_INVERT, LED_BRIGHTNESS, LED_CHANNEL)
+    strip = Adafruit_NeoPixel(LED_COUNT, LED_PIN, LED_FREQ_HZ, LED_DMA, LED_INVERT, LED_BRIGHTNESS, LED_CHANNEL) # type: ignore
     # Intialize the library (must be called once before other functions).
     strip.begin()
+
+
+    # Create thread to handle network requests
+    listener_thread = threading.Thread(target=listen_for_packets, daemon=True)
+    listener_thread.start()
 
     global brightness
     global dev
@@ -885,8 +1037,7 @@ if __name__ == '__main__':
 
     time_card_heap = []
 
-
-    brightness = 35
+    brightness = 25
 
 
     # 35 max
@@ -898,7 +1049,7 @@ if __name__ == '__main__':
     elif brightness <= 0:
         brightness = 1
 
-    color_wipe(strip, Color(0,0,0), 1)
+    color_wipe(strip, Color(0,0,0), 1) # type: ignore
 
     itinerary_or_ani_or_clock = input("Is this a .ani file?(A), or a .iti file?(I), or play clock (C): ")
     is_ani = False
@@ -947,7 +1098,7 @@ if __name__ == '__main__':
 
         except KeyboardInterrupt:
             print("\nexiting")
-            color_wipe(strip, Color(0,0,0), .5)
+            color_wipe(strip, Color(0,0,0), .5) # type: ignore
             break
             
     

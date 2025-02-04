@@ -294,7 +294,7 @@ Does: Loads a image into a matrix of size square_side_length * square_side_lengt
 def load_image_to_array(image_path_or_frame, color, calibrated_colors, square_side_length):
     """Load an image and convert it to a two-dimensional array of RGB values."""
 
-    red_boost = False
+    red_boost = True
 
     if not isinstance(image_path_or_frame, Image.Image):
         # Open the image
@@ -1123,6 +1123,7 @@ elif int(option) == 3:
 
         # Prompt the user for GIF input
         gif_name = input("Please enter the file name of the gif: ")
+        gif_name = gif_name.replace('"', '').replace("'", "")
         file_name = input("Please enter the output files name: ")
         custom_fps = input("Do you want a custom FPS?(Y/N): ")
         insert_black_frame = input("Insert a black frame at end of gif? (Y/N): ")
@@ -1186,6 +1187,8 @@ elif int(option) == 3:
     else:
         # Prompt the user to input a folder containing GIF files
         folder_path = input("Enter the folder path containing GIF files: ")
+        folder_path = folder_path.replace('"', '').replace("'", "")
+        remove_grid = input("Remove a grid? (Y/N): ")
 
         # Iterate over each file in the folder
         for filename in os.listdir(folder_path):
@@ -1195,6 +1198,9 @@ elif int(option) == 3:
             image_array = [[(0, 0, 0) for _ in range(square_matrix_size)] for _ in range(square_matrix_size)]
             if filename.endswith(".gif") or filename.endswith(".GIF"):
                 gif_path = os.path.join(folder_path, filename)
+
+                if remove_grid.lower() == 'y':
+                    remove_grid_from_gif(gif_path)
 
                 # Get the frames per second from the GIF
                 fps = get_gif_fps(gif_path)
@@ -1224,7 +1230,7 @@ elif int(option) == 3:
 
                 if not os.path.exists(gif_path):
                     print("error invalid paths")
-                    sys.exit(1)
+                    sys.exit(1) # type: ignore
                 gif = Image.open(gif_path)
 
                 file_path = file_path[:-4]
