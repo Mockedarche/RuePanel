@@ -3,11 +3,11 @@ RuePanel is a fun little project i've worked on which is essentially making my o
 EVERYTHING is in beta and expect changes and functionality to be changed/added. 
 
 GIFs
-16 by 16
+16 by 16  (current prototype)
 
 ![](https://github.com/Mockedarche/RuePanel/blob/main/Media/16by16_example1.gif)
 
-8 by 8
+8 by 8 (first prototype)
 
 ![](https://github.com/Mockedarche/RuePanel/blob/main/Media/final_hello_github.gif)
 
