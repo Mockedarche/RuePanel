@@ -1016,7 +1016,7 @@ def clock_player(strip, side_length, time_card_heap):
                         pass  # Discard all stacked events
                     while True:
                         event = dev.read_one()
-                        if event and event.value == 82:
+                        if (event and event.value == 82) or (event and event.value == 0):
                             compositor(strip, matrixes, translation_map, desired_color)
                             break
                         else:
