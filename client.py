@@ -44,12 +44,12 @@ LED_INVERT     = False   # True to invert the signal (when using NPN transistor 
 LED_CHANNEL    = 0       # set to '1' for GPIOs 13, 19, 41, 45 or 53
 
 
-pixel_array = Color(0,0,0) * LED_COUNT # type: ignore
-
-total_times_queried_temperature = 0
 
 DHT_SENSOR = Adafruit_DHT.DHT22
 DHT_PIN = 4
+
+global exit_animation
+global animation_thread_flag
 
 
 def listen_for_packets():
@@ -165,7 +165,9 @@ Expects: Expects the strip to be correctly initialized, file_name to be valid, s
 Does:
 
 """
-def play_animation(strip, file_name, side_length, looping):
+def play_animation(strip, file_name, side_length):
+    global exit_animation
+
     colorless_wipe(strip) # type: ignore
     if len(file_name) < 4:
         print("invalid animation file")
@@ -199,13 +201,16 @@ def play_animation(strip, file_name, side_length, looping):
 
         line = file.readline()
         while line:
+
+            if exit_animation:
+                exit_animation = False
+                return
             
             start_time = time.time()  # Get the start time
             pixels = line.split(",")
             pixels.pop()
             
             for i in pixels:
-                #print(i)
                 pixel_details = i.split(" ")
                 strip.setPixelColor(int(pixel_details[1]), Color(int(pixel_details[2]), int(pixel_details[3]), int(pixel_details[4]))) # type: ignore
                 
@@ -834,6 +839,22 @@ def delete_file(file_path):
         print(f"An error occurred: {e}")
 
 
+def animation_thread():
+    global animation_thread_flag
+    global exit_animation
+
+    while not animation_thread_flag:
+        event = dev.read_one()
+        if event:
+            if event.value == 74 or event.value == 66:
+                exit_animation = True
+                animation_thread_flag = True
+                print("Exiting animation")
+                return
+            
+        time.sleep(0.1)
+
+
 """
 Function: clock_player - Handles all tasks related to the clock behavior of the panel (time, temperature, brightness, etc)
 Expects: Expects strip to be correctly initialized and side_length to be valid
@@ -842,6 +863,8 @@ Does: Sets up and updates the clock to display the current time and temperature 
 """
 def clock_player(strip, side_length, time_card_heap):
     global brightness
+    global animation_thread_flag
+    animation_thread_flag = False
     desired_color = Color(255, 0, 0) # type: ignore
     color_position = 0
     random_gif_position = 0
@@ -951,7 +974,11 @@ def clock_player(strip, side_length, time_card_heap):
                     random_gif_position += 1
                     if len(random_gif_helper(random_gif_directory)) == random_gif_position:
                         random_gif_position = 0
-                    play_animation(strip, "random_gif_anis/" + random_gif_helper(random_gif_directory)[random_gif_position], 16, -1)
+
+                    animation_thread_flag = False
+                    anim_thread = threading.Thread(target=animation_thread, daemon=True)
+                    anim_thread.start()
+                    play_animation(strip, "random_gif_anis/" + random_gif_helper(random_gif_directory)[random_gif_position], 16)
                     compositor(strip, matrixes, translation_map, desired_color)
 
             elif event.value == 66:
@@ -960,16 +987,21 @@ def clock_player(strip, side_length, time_card_heap):
                 else:
                     if random_gif_position > 0:
                         random_gif_position -= 1
-                    play_animation(strip, "random_gif_anis/" + random_gif_helper(random_gif_directory)[random_gif_position], 16, -1)
+                    elif random_gif_position == 0:
+                        random_gif_position = len(random_gif_helper(random_gif_directory)) - 1
+
+                    animation_thread_flag = False
+                    anim_thread = threading.Thread(target=animation_thread, daemon=True)
+                    anim_thread.start()
+                    play_animation(strip, "random_gif_anis/" + random_gif_helper(random_gif_directory)[random_gif_position], 16)
                     compositor(strip, matrixes, translation_map, desired_color)
             
             elif event.value == 28:
                 if len(random_gif_helper(random_gif_directory)) == 0:
                     print("No gifs found")
                 else:
-                    play_animation(strip, "random_gif_anis/" + random_gif_helper(random_gif_directory)[random_gif_position], 16, -1)
+                    play_animation(strip, "random_gif_anis/" + random_gif_helper(random_gif_directory)[random_gif_position], 16)
                     compositor(strip, matrixes, translation_map, desired_color)
-                    time.sleep(1)
 
             elif event.value == 82:
                 altmode = False
@@ -988,7 +1020,7 @@ def clock_player(strip, side_length, time_card_heap):
                             compositor(strip, matrixes, translation_map, desired_color)
                             break
                         else:
-                            play_animation(strip, "random_gif_anis/" + random_gif_helper(random_gif_directory)[random_gif_position], 16, 1)
+                            play_animation(strip, "random_gif_anis/" + random_gif_helper(random_gif_directory)[random_gif_position], 16)
 
             # **Clear out any remaining queued IR events**  
             while dev.read_one():
@@ -1012,6 +1044,9 @@ Does: Sets up ir_device, strip, etc for the panel to function
 
 """
 if __name__ == '__main__':
+
+    animation_thread_flag = False
+    exit_animation = False
 
     
     # Create NeoPixel object with appropriate configuration.
@@ -1079,16 +1114,15 @@ if __name__ == '__main__':
     else:
         is_clock = True
 
+    # 35 max
+    change_brightness(strip, brightness)
 
     while True:
     
         try:
 
-            # 35 max
-            change_brightness(strip, brightness)
-
             if is_ani:
-                play_animation(strip, file_name, 16, -1)
+                play_animation(strip, file_name, 16)
 
             elif is_iti:
                 itinerary_player(file_name, strip, 16)
