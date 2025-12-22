@@ -10,21 +10,17 @@ Future goals - Add more hardware support, add more software support, adjustable 
 
 """
 
-
-
-import time
-import sys
-import random
-import evdev # type: ignore
-from rpi_ws281x import * # type: ignore
-from datetime import datetime, timedelta
-import requests # type: ignore
 import heapq
-import socket
-import Adafruit_DHT # type: ignore
-import threading
 import os
+import random
+import socket
+import sys
+import threading
+import time
+from datetime import datetime, timedelta
 
+import requests  # type: ignore
+from rpi_ws281x import *  # type: ignore
 
 """
 Function:
@@ -33,49 +29,277 @@ Does:
 
 """
 
+"""
+TODO
+complete change from IR to wifi based control (including all of gif changes etc making sure to keep track of thread behavior)
+complete the cardputer controller
+
+"""
+
 # LED strip configuration:
-LED_COUNT      = 256      # Number of LED pixels.
-LED_PIN        = 18      # GPIO pin connected to the pixels (18 uses PWM!).
-#LED_PIN        = 10      # GPIO pin connected to the pixels (10 uses SPI /dev/spidev0.0).
-LED_FREQ_HZ    = 800000  # LED signal frequency in hertz (usually 800khz)
-LED_DMA        = 10      # DMA channel to use for generating signal (try 10)
-LED_BRIGHTNESS = 10     # Set to 0 for darkest and 255 for brightest
-LED_INVERT     = False   # True to invert the signal (when using NPN transistor level shift)
-LED_CHANNEL    = 0       # set to '1' for GPIOs 13, 19, 41, 45 or 53
+LED_COUNT = 256  # Number of LED pixels.
+LED_PIN = 18  # GPIO pin connected to the pixels (18 uses PWM!).
+# LED_PIN        = 10      # GPIO pin connected to the pixels (10 uses SPI /dev/spidev0.0).
+LED_FREQ_HZ = 800000  # LED signal frequency in hertz (usually 800khz)
+LED_DMA = 10  # DMA channel to use for generating signal (try 10)
+LED_BRIGHTNESS = 10  # Set to 0 for darkest and 255 for brightest
+LED_INVERT = False  # True to invert the signal (when using NPN transistor level shift)
+LED_CHANNEL = 0  # set to '1' for GPIOs 13, 19, 41, 45 or 53
 
 
+# Define the MicroPython device's IP and port for the sensor collection
+MICROPYTHON_IP = "PLACE WITH YOURS"
+PORT =
 
-DHT_SENSOR = Adafruit_DHT.DHT22
-DHT_PIN = 4
+# define the max brightness allowed
+MAX_BRIGHTNESS = 35
+
 
 global exit_animation
 global animation_thread_flag
+global rightness
+global brightness_change
+global color_change
+global color_position
+global gif_change  # 1 indicates true, 0 indicates false, and 2 indicates loop
+global gif_position
+global lock
+global temperature
+global humidity
+global ambient_light_lux
+global auto_brightness
+auto_brightness = True
+lock = threading.Lock()
+
+
+"""
+Function: random_gif_helper - Given a directory it returns a list of all the files in the directory
+Expects: Expects the directory to be valid
+Does: Returns a list of all files in the directory
+"""
+
+
+def random_gif_helper(directory):
+    try:
+        # Get a sorted list of all files in the directory (excluding subdirectories)
+        files = [
+            file
+            for file in os.listdir(directory)
+            if os.path.isfile(os.path.join(directory, file))
+        ]
+        return sorted(files)  # Sort the files to ensure consistent order
+    except FileNotFoundError:
+        print(f"The directory {directory} was not found.")
+        return []
+    except PermissionError:
+        print(f"Permission denied to access {directory}.")
+        return []
+
+
+def handle_command(command):
+    global brightness
+    global brightness_change
+    global color_position
+    global color_change
+    global gif_change
+    global gif_position
+    global exit_animation
+    global lock
+    global auto_brightness
+    random_gif_directory = "random_gif_anis"
+
+    if command == "/print_done":
+        add_time_card(datetime.now(), "Print Done")
+
+    elif command == "/brightness_up":
+        with lock:
+            if not auto_brightness and brightness < 35:
+                brightness += 1
+                brightness_change = True
+
+    elif command == "/brightness_down":
+        with lock:
+            if not auto_brightness and brightness > 1:
+                brightness -= 1
+                brightness_change = True
+
+    elif command == "/screen_off":
+        with lock:
+            if not auto_brightness:
+                brightness = 0
+                brightness_change = True
+
+    elif command == "/right_color_shift":
+        with lock:
+            if color_position < 51:
+                color_position += 1
+                color_change = True
+
+    elif command == "/left_color_shift":
+        with lock:
+            if color_position > 0:
+                color_position -= 1
+                color_change = True
+
+    elif command == "/left_gif_shift":
+        with lock:
+            if len(random_gif_helper(random_gif_directory)) == 0:
+                print("No gifs found")
+            else:
+                if gif_change == 1:
+                    exit_animation = True
+                else:
+                    gif_position -= 1
+                    if gif_position < 0:
+                        gif_position = len(random_gif_helper(random_gif_directory)) - 1
+                gif_change = 1
+
+    elif command == "/right_gif_shift":
+        with lock:
+            if len(random_gif_helper(random_gif_directory)) == 0:
+                print("No gifs found")
+            else:
+                if gif_change == 1:
+                    exit_animation = True
+                else:
+                    gif_position += 1
+                    if gif_position == len(random_gif_helper(random_gif_directory)):
+                        gif_position = 0
+                gif_change = 1
+
+    elif command == "/replay_gif":
+        with lock:
+            gif_change = 1
+
+    elif command == "/loop_gif":
+        with lock:
+            if gif_change == 2:
+                exit_animation = True
+            gif_change = 2
+
+    elif command == "/auto_brightness_toggle":
+        with lock:
+            auto_brightness = not auto_brightness
+            if auto_brightness:
+                add_time_card(datetime.now() + timedelta(seconds=1), "Auto_Brightness")
+
+
+def listen_for_http():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", ))
+        s.listen()
+        while True:
+            conn, addr = s.accept()
+            with conn:
+                request = conn.recv(1024).decode()
+                if not request:
+                    continue
+                first_line = request.splitlines()[0]
+                parts = first_line.split()
+                if len(parts) >= 2:
+                    method, path = parts[0], parts[1]
+                    print(f"Received {method} {path} from {addr}")
+                    handle_command(path)
+                # basic response
+                response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK"
+                conn.sendall(response.encode())
 
 
 def listen_for_packets():
+    global brightness
+    global brightness_change
+    global color_position
+    global color_change
+    global gif_change
+    global gif_position
+    global exit_animation
+    global lock
+    global auto_brightness
+    random_gif_directory = "random_gif_anis"
+
     # Set up the server
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    server_socket.bind(('192.168.50.57', 12345))
+    server_socket.bind(("", ))
 
     while True:
         data, addr = server_socket.recvfrom(1024)
-        print(f"Received packet from {addr}: {data.decode()}")   
+        print(f"Received packet from {addr}: {data.decode()}")
         if data.decode() == "print_done":
             add_time_card(datetime.now(), "Print Done")
+        elif data.decode() == "brightness_up":
+            with lock:
+                if auto_brightness == False:
+                    if brightness < 35:
+                        brightness += 1
+                        brightness_change = True
+        elif data.decode() == "brightness_down":
+            with lock:
+                if auto_brightness == False:
+                    if brightness > 1:
+                        brightness -= 1
+                        brightness_change = True
+        elif data.decode() == "screen_off":
+            with lock:
+                if auto_brightness == False:
+                    brightness = 0
+                    brightness_change = True
+        elif data.decode() == "right_color_shift":
+            with lock:
+                if color_position < 51:
+                    color_position += 1
+                    color_change = True
+        elif data.decode() == "left_color_shift":
+            with lock:
+                if color_position > 0:
+                    color_position -= 1
+                    color_change = True
+        elif data.decode() == "left_gif_shift":
+            with lock:
+                if len(random_gif_helper(random_gif_directory)) == 0:
+                    print("No gifs found")
 
-""" 
-Function: get_ir_device - Used to initialize the ir device 
-Expects: Expects nothing
-Does: If the ir device is connected and correctly in the evdev it will return it
+                else:
+                    if gif_change == 1:
+                        exit_animation = True
+                    else:
+                        gif_position -= 1
+                        if gif_position < 0:
+                            gif_position = (
+                                len(random_gif_helper(random_gif_directory)) - 1
+                            )
 
-"""
-def get_ir_device():
-    devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
-    for device in devices:
-        if (device.name == "gpio_ir_recv"):
-            print("Using device", device.path, "n")
-            return device
-    print("No device found!")
+                    gif_change = 1
+
+        elif data.decode() == "right_gif_shift":
+            with lock:
+                if len(random_gif_helper(random_gif_directory)) == 0:
+                    print("No gifs found")
+                else:
+                    if gif_change == 1:
+                        exit_animation = True
+                    else:
+                        gif_position += 1
+                        if gif_position == len(random_gif_helper(random_gif_directory)):
+                            gif_position = 0
+
+                    gif_change = 1
+
+        elif data.decode() == "replay_gif":
+            with lock:
+                gif_change = 1
+        elif data.decode() == "loop_gif":
+            with lock:
+                if gif_change == 2:
+                    exit_animation = True
+                gif_change = 2
+        elif data.decode() == "auto_brightness_toggle":
+            with lock:
+                auto_brightness = not auto_brightness
+                if auto_brightness:
+                    add_time_card(
+                        datetime.now() + timedelta(seconds=1), "Auto_Brightness"
+                    )
+
 
 """
 Function: change_brightness - Used to change the brightness of the panel
@@ -83,17 +307,26 @@ Expects: Expects that the strip is correctly initialized and that brightness is 
 Does: Sets the panels brightness to the given brightness value
 
 """
+
+
 def change_brightness(strip, brightness):
-    """Change brightness of the LED strip."""
-    strip.setBrightness(brightness)
-    strip.show()  # Update the LEDs with the new brightness
+    if brightness <= MAX_BRIGHTNESS:
+        """Change brightness of the LED strip."""
+        strip.setBrightness(brightness)
+        strip.show()  # Update the LEDs with the new brightness
+        print("Brightness set to: " + str(brightness))
+    else:
+        print("Brightness out of range")
+
 
 """
 Function: color_wipe - Used to set the entire panel to be 1 color (mostly used to clearing it of color)
-Expects: Expects that strip, color, and wait_ms are initialized and or valid input 
+Expects: Expects that strip, color, and wait_ms are initialized and or valid input
 Does: Sets the entire panel to the given color doing so pixel by pixel per wait_ms
 
 """
+
+
 def color_wipe(strip, color, wait_ms=0):
     """Wipe color across display a pixel at a time."""
     for i in range(strip.numPixels()):
@@ -104,19 +337,20 @@ def color_wipe(strip, color, wait_ms=0):
             time.sleep(wait_ms / 1000)
     strip.show()
 
+
 """
 Function: colorless_wipe - Used to set the entire panel to be black without updating (mostly used to clearing it of color)
 Expects: Expects that strip is initialized
 Does: Sets the entire panel to black without updating it
 
 """
+
+
 def colorless_wipe(strip):
     black = Color(0, 0, 0)
     """Wipe color across display a pixel at a time."""
     for i in range(strip.numPixels()):
         strip.setPixelColor(i, black)
-
-       
 
 
 """
@@ -125,6 +359,8 @@ Expects: Expects the strip to be initialized, itinerary file to correctly be for
 Does: Plays various ani files as dictated by the passed ini file
 
 """
+
+
 def itinerary_player(itinerary_file_name, strip, side_length):
     if len(itinerary_file_name) < 4:
         print(("invalid itinerary file"))
@@ -135,8 +371,7 @@ def itinerary_player(itinerary_file_name, strip, side_length):
         if extentsion_check.lower() != ".iti":
             itinerary_file_name = itinerary_file_name + ".iti"
 
-
-    with open(itinerary_file_name, 'r') as file:
+    with open(itinerary_file_name, "r") as file:
         line = file.readline()
 
         while line:
@@ -149,14 +384,13 @@ def itinerary_player(itinerary_file_name, strip, side_length):
             start_time = time.time()
 
             print("Should run for: " + str(time_to_run) + " seconds")
-            while(time.time() - start_time < time_to_run):
+            while time.time() - start_time < time_to_run:
                 print("playing file: " + file_path)
                 play_animation(strip, file_path, side_length, time.time() + time_to_run)
 
             print("finished")
             line = file.readline()
-            colorWipe(strip, Color(0,0,0), 0) # type: ignore # type: ignore
-
+            colorWipe(strip, Color(0, 0, 0), 0)  # type: ignore # type: ignore
 
 
 """
@@ -165,10 +399,13 @@ Expects: Expects the strip to be correctly initialized, file_name to be valid, s
 Does:
 
 """
+
+
 def play_animation(strip, file_name, side_length):
     global exit_animation
+    global lock
 
-    colorless_wipe(strip) # type: ignore
+    colorless_wipe(strip)  # type: ignore
     if len(file_name) < 4:
         print("invalid animation file")
         sys.exit(1)
@@ -177,12 +414,11 @@ def play_animation(strip, file_name, side_length):
         if extentsion_check.lower() != ".ani":
             file_name = file_name + ".ani"
 
-
     with open(file_name, "r") as file:
         line = file.readline()
         while True:
             line = file.readline()
-            if "\"" in line:
+            if '"' in line:
                 line = file.readline()
                 break
         fps = line.split().pop()
@@ -201,53 +437,75 @@ def play_animation(strip, file_name, side_length):
 
         line = file.readline()
         while line:
-
-            if exit_animation:
-                exit_animation = False
-                return
-            
             start_time = time.time()  # Get the start time
             pixels = line.split(",")
             pixels.pop()
-            
+
             for i in pixels:
                 pixel_details = i.split(" ")
-                strip.setPixelColor(int(pixel_details[1]), Color(int(pixel_details[2]), int(pixel_details[3]), int(pixel_details[4]))) # type: ignore
-                
-                
+                strip.setPixelColor(
+                    int(pixel_details[1]),
+                    Color(
+                        int(pixel_details[2]),
+                        int(pixel_details[3]),
+                        int(pixel_details[4]),
+                    ),
+                )  # type: ignore
+
             line = file.readline()
             strip.show()
 
+            with lock:
+                if exit_animation:
+                    print("exited early")
+                    return
+
             end_time = time.time()  # Get the end time
-            
-            duration_ms = (end_time - start_time) * 1000  # Convert duration to milliseconds
+
+            duration_ms = (
+                end_time - start_time
+            ) * 1000  # Convert duration to milliseconds
 
             if print_flag:
-                print("Frame took: " + str(duration_ms)  + " / " + str(fps_interval_ms))
+                print("Frame took: " + str(duration_ms) + " / " + str(fps_interval_ms))
 
             if duration_ms < fps_interval_ms:
-                time.sleep((fps_interval_ms - duration_ms) / 1000)  # Convert back to seconds for sleep
+                time.sleep(
+                    (fps_interval_ms - duration_ms) / 1000
+                )  # Convert back to seconds for sleep
             else:
                 frames_that_lagged += 1
                 if print_flag:
-                    print("FRAME TOOK TOO LONG TO PRINT BY: " + str(duration_ms - fps_interval_ms) + " ms")
-                    print_flag = False  # Turn off the flag to prevent repetitive printing
-                    time.sleep(fps_interval_ms / 1000)  # Sleep for the full FPS interval
+                    print(
+                        "FRAME TOOK TOO LONG TO PRINT BY: "
+                        + str(duration_ms - fps_interval_ms)
+                        + " ms"
+                    )
+                    print_flag = (
+                        False  # Turn off the flag to prevent repetitive printing
+                    )
+                    time.sleep(
+                        fps_interval_ms / 1000
+                    )  # Sleep for the full FPS interval
                 # Continue your existing loop
 
-            
-        colorless_wipe(strip) # type: ignore
-        
-            
+        colorless_wipe(strip)  # type: ignore
+
         if print_flag:
-            print("There were a total of " + str(frames_that_lagged) + " frames that lagged or took longer to display than the FPS interval")
-            
+            print(
+                "There were a total of "
+                + str(frames_that_lagged)
+                + " frames that lagged or took longer to display than the FPS interval"
+            )
+
 
 """
-Function: rotate_matrix - Given a matrix, and k ( k = // 90 degrees) 
+Function: rotate_matrix - Given a matrix, and k ( k = // 90 degrees)
 Expects: Expects the matrix to be square and k to be a integer
-Does: Rotates the matrix by 90 degrees for EACH K 
+Does: Rotates the matrix by 90 degrees for EACH K
 """
+
+
 def rotate_matrix(matrix, k):
     def rotate_90(matrix):
         # Transpose and then reverse rows to rotate 90 degrees clockwise
@@ -267,8 +525,9 @@ Function: get_color - Returns a tuple from the list of tuples (colors), note lis
 Expects: Expects index to correctly be within the size of the colors list
 Does: Given a index return the corresponding tuple in the colors list
 """
-def get_color(index):
 
+
+def get_color(index):
     colors = [
         ("red", (255, 0, 0)),
         ("white", (255, 255, 255)),
@@ -321,120 +580,64 @@ def get_color(index):
         ("spring green", (0, 255, 127)),
         ("tomato", (255, 99, 71)),
         ("wheat", (245, 222, 179)),
-        ("yellow green", (154, 205, 50))
+        ("yellow green", (154, 205, 50)),
     ]
 
     r, g, b = colors[index][1]
-    return Color(r, g, b) # type: ignore
+    return Color(r, g, b)  # type: ignore
+
 
 """
 Function: add_time_card - simple function just adds a timecard to our heap (thats used to schedule tasks)
 Expects: Expects that the time_card_heap has been correctly initialized
 Does: Adds the card to the time_card_heap
 """
+
+
 def add_time_card(when_card_should_be_ran, task_description):
     global time_card_heap
     heapq.heappush(time_card_heap, (when_card_should_be_ran, task_description))
 
 
+# Ping every 5 seconds
 
-"""
-Function: get_weather - Using tomorrow.io's weather api get the current temperature and condition for the given longitude and latitude
-Expects: Expects nothing
-Does: Returns the current temperature and condition
-"""
-"""
-def get_weather():
-    global total_times_queried_temperature
-    total_times_queried_temperature += 1
-    print("Temperature queried current count: " + str(total_times_queried_temperature))
-
-    # TODO REMOVE BEFORE UPLOADING MAKE SURE TO GET ALL 3
-    api_key = "ADD your token here"
-    lat = 0
-    lon = 0
-
-
-    url = "https://api.tomorrow.io/v4/timelines"
-
-    params = {
-        "location": f"{lat},{lon}",
-        "fields": ["temperature", "weatherCode"],
-        "timesteps": "current",
-        "units": "imperial",
-        "apikey": api_key
-    }
-
-    # Make the API request
-    response = requests.get(url, params=params)
-    data = response.json()
-
-    # Extract temperature and weather code
-    temperature = data['data']['timelines'][0]['intervals'][0]['values']['temperature']
-    weather_code = data['data']['timelines'][0]['intervals'][0]['values']['weatherCode']
-
-    # Round temp to nearest int
-    temperature = round(temperature)
-
-    # Map weather code to a description
-    weather_conditions = {
-        0: "Unknown",
-        1000: "Clear",
-        1001: "Cloudy",
-        1100: "Mostly Clear",
-        1101: "Partly Cloudy",
-        1102: "Mostly Cloudy",
-        2000: "Fog",
-        2100: "Light Fog",
-        3000: "Light Wind",
-        3001: "Wind",
-        3002: "Strong Wind",
-        4000: "Drizzle",
-        4001: "Rain",
-        4200: "Light Rain",
-        4201: "Heavy Rain",
-        5000: "Snow",
-        5001: "Flurries",
-        5100: "Light Snow",
-        5101: "Heavy Snow",
-        6000: "Freezing Drizzle",
-        6001: "Freezing Rain",
-        6200: "Light Freezing Rain",
-        6201: "Heavy Freezing Rain",
-        7000: "Ice Pellets",
-        7101: "Heavy Ice Pellets",
-        7102: "Light Ice Pellets",
-        8000: "Thunderstorm"
-    }
-
-    condition = weather_conditions.get(weather_code, "Unknown")
-
-    return temperature, condition
-"""
 
 """
 Function: get_temperature_humidity - uses the DHT22 using the globally scoped sensor and pin variables. Using the DHT22 it gets the temperature (in F) and humidity and returns it
 Expects: Expects that the DHT_SENSOR and DHT_PIN is correctly wired to a working DHT22 NOTE catches an error by passing the previous temperature and making humidity 0
 Does: Using the DHT22 returns the temperature and humidity if no error occurs. If an error occurs returns previous temperature and humidity as 0
 """
-def get_temperature_humidity():
+
+
+def get_sensor_data():
     global temperature
+    global humidity
+    global ambient_light_lux
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.settimeout(2)  # Set a timeout for responses
 
+    try:
+        message = "ping"
+        sock.sendto(message.encode(), (MICROPYTHON_IP, PORT))  # Send ping
 
-    humidity, new_temperature = Adafruit_DHT.read(DHT_SENSOR, DHT_PIN)
+        data, addr = sock.recvfrom(1024)  # Receive response
+        # print(f"Received from {addr}: {data.decode()}")
+        sensors_data = data.decode().split()
+        with lock:
+            try:
+                temperature = int(sensors_data[1].split(".")[0])
+                humidity = int(sensors_data[3][:2].split(".")[0])
+                ambient_light_lux = int(sensors_data[5].split(".")[0])
+            except ValueError:
+                pass
 
-    if humidity is not None and new_temperature is not None:
-        new_temperature = new_temperature * (9 / 5) + 32.0
-        new_temperature = int(new_temperature)
-        humidity = int(humidity)
-        #print("Returned temperature")
-        temperature = new_temperature
-        return new_temperature, humidity
+            # print(f"Temperature: {temperature}°F, Humidity: {humidity}%, Ambient Light: {ambient_light_lux} lux")
 
-    else:
-        return temperature, 0
-
-
+    except (socket.timeout, OSError, socket.gaierror) as e:
+        print(f"Network error: {e}")
+        return
+    finally:
+        sock.close()
 
 
 """
@@ -442,108 +645,49 @@ Function: update_temperature_on_panel - Updates the temperature on the panel to 
 Expects: Expects the strip and translation_map to be correct initialized, side_length, temperature, and desired color to be valid data
 Does: Updates the temperature on the panel to what is current given enough time has passed
 """
+
+
 def update_temperature_on_panel(matrix):
     debug = False
+    global temperature
+    global humidity
 
-    temperature, humidity = get_temperature_humidity()
+    get_sensor_data()
 
     digit_matrices = {
-        '0': [
-            [1, 1, 1],
-            [1, 0, 1],
-            [1, 0, 1],
-            [1, 0, 1],
-            [1, 1, 1]
-        ],
-        '1': [
-            [0, 1, 0],
-            [1, 1, 0],
-            [0, 1, 0],
-            [0, 1, 0],
-            [1, 1, 1]
-        ],
-        '2': [
-            [1, 1, 1],
-            [0, 0, 1],
-            [1, 1, 1],
-            [1, 0, 0],
-            [1, 1, 1]
-        ],
-        '3': [
-            [1, 1, 1],
-            [0, 0, 1],
-            [1, 1, 1],
-            [0, 0, 1],
-            [1, 1, 1]
-        ],
-        '4': [
-            [1, 0, 1],
-            [1, 0, 1],
-            [1, 1, 1],
-            [0, 0, 1],
-            [0, 0, 1]
-        ],
-        '5': [
-            [1, 1, 1],
-            [1, 0, 0],
-            [1, 1, 1],
-            [0, 0, 1],
-            [1, 1, 1]
-        ],
-        '6': [
-            [1, 1, 1],
-            [1, 0, 0],
-            [1, 1, 1],
-            [1, 0, 1],
-            [1, 1, 1]
-        ],
-        '7': [
-            [1, 1, 1],
-            [0, 0, 1],
-            [0, 0, 1],
-            [0, 0, 1],
-            [0, 0, 1]
-        ],
-        '8': [
-            [1, 1, 1],
-            [1, 0, 1],
-            [1, 1, 1],
-            [1, 0, 1],
-            [1, 1, 1]
-        ],
-        '9': [
-            [1, 1, 1],
-            [1, 0, 1],
-            [1, 1, 1],
-            [0, 0, 1],
-            [1, 1, 1]
-        ]
+        "0": [[1, 1, 1], [1, 0, 1], [1, 0, 1], [1, 0, 1], [1, 1, 1]],
+        "1": [[0, 1, 0], [1, 1, 0], [0, 1, 0], [0, 1, 0], [1, 1, 1]],
+        "2": [[1, 1, 1], [0, 0, 1], [1, 1, 1], [1, 0, 0], [1, 1, 1]],
+        "3": [[1, 1, 1], [0, 0, 1], [1, 1, 1], [0, 0, 1], [1, 1, 1]],
+        "4": [[1, 0, 1], [1, 0, 1], [1, 1, 1], [0, 0, 1], [0, 0, 1]],
+        "5": [[1, 1, 1], [1, 0, 0], [1, 1, 1], [0, 0, 1], [1, 1, 1]],
+        "6": [[1, 1, 1], [1, 0, 0], [1, 1, 1], [1, 0, 1], [1, 1, 1]],
+        "7": [[1, 1, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1]],
+        "8": [[1, 1, 1], [1, 0, 1], [1, 1, 1], [1, 0, 1], [1, 1, 1]],
+        "9": [[1, 1, 1], [1, 0, 1], [1, 1, 1], [0, 0, 1], [1, 1, 1]],
     }
 
-    letter_f_matrix = [
-        [1, 1, 1],
-        [1, 0, 0],
-        [1, 1, 1],
-        [1, 0 ,0],
-        [1, 0, 0]
-    ]
+    letter_f_matrix = [[1, 1, 1], [1, 0, 0], [1, 1, 1], [1, 0, 0], [1, 0, 0]]
 
     for row in matrix:
         row[:] = [0] * 16
 
-    temperature = str(temperature)
-    if len(temperature) >= 3:
+    with lock:
+        temp_temperature = temperature
+        temp_humidity = humidity
+
+    temp_temperature = str(temp_temperature)
+    if len(temp_temperature) >= 3:
         col_offset = 1
 
     else:
         col_offset = int(len(matrix) / 4) + 1
 
-    row_offset = int(len(matrix) /2)
+    row_offset = int(len(matrix) / 2)
     col_count = 0
 
-
-    for i in range(0, len(temperature)):
-        current_matrix = digit_matrices[temperature[i]]
+    for i in range(0, len(temp_temperature)):
+        current_matrix = digit_matrices[temp_temperature[i]]
         row_count = row_offset
         for row in current_matrix:
             col_count = col_offset
@@ -582,11 +726,14 @@ def update_temperature_on_panel(matrix):
 
     return matrix
 
+
 """
 Function update_time_on_panel - takes the given matrix that holds the time and updates it to hold the current time
-Expects: Expects that matrix is intialized and of the correct size 
+Expects: Expects that matrix is intialized and of the correct size
 Does: Updates the time on the given matrix
 """
+
+
 def update_time_on_panel(matrix):
     debug = False
 
@@ -597,83 +744,23 @@ def update_time_on_panel(matrix):
     time_str = now.strftime("%-I:%M")
 
     digit_matrices = {
-        '0': [
-            [1, 1, 1],
-            [1, 0, 1],
-            [1, 0, 1],
-            [1, 0, 1],
-            [1, 1, 1]
-        ],
-        '1': [
-            [0, 1, 0],
-            [0, 1, 0],
-            [0, 1, 0],
-            [0, 1, 0],
-            [0, 1, 0]
-        ],
-        '2': [
-            [1, 1, 1],
-            [0, 0, 1],
-            [1, 1, 1],
-            [1, 0, 0],
-            [1, 1, 1]
-        ],
-        '3': [
-            [1, 1, 1],
-            [0, 0, 1],
-            [1, 1, 1],
-            [0, 0, 1],
-            [1, 1, 1]
-        ],
-        '4': [
-            [1, 0, 1],
-            [1, 0, 1],
-            [1, 1, 1],
-            [0, 0, 1],
-            [0, 0, 1]
-        ],
-        '5': [
-            [1, 1, 1],
-            [1, 0, 0],
-            [1, 1, 1],
-            [0, 0, 1],
-            [1, 1, 1]
-        ],
-        '6': [
-            [1, 1, 1],
-            [1, 0, 0],
-            [1, 1, 1],
-            [1, 0, 1],
-            [1, 1, 1]
-        ],
-        '7': [
-            [1, 1, 1],
-            [0, 0, 1],
-            [0, 0, 1],
-            [0, 0, 1],
-            [0, 0, 1]
-        ],
-        '8': [
-            [1, 1, 1],
-            [1, 0, 1],
-            [1, 1, 1],
-            [1, 0, 1],
-            [1, 1, 1]
-        ],
-        '9': [
-            [1, 1, 1],
-            [1, 0, 1],
-            [1, 1, 1],
-            [0, 0, 1],
-            [1, 1, 1]
-        ],
-        ':': [
+        "0": [[1, 1, 1], [1, 0, 1], [1, 0, 1], [1, 0, 1], [1, 1, 1]],
+        "1": [[0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0]],
+        "2": [[1, 1, 1], [0, 0, 1], [1, 1, 1], [1, 0, 0], [1, 1, 1]],
+        "3": [[1, 1, 1], [0, 0, 1], [1, 1, 1], [0, 0, 1], [1, 1, 1]],
+        "4": [[1, 0, 1], [1, 0, 1], [1, 1, 1], [0, 0, 1], [0, 0, 1]],
+        "5": [[1, 1, 1], [1, 0, 0], [1, 1, 1], [0, 0, 1], [1, 1, 1]],
+        "6": [[1, 1, 1], [1, 0, 0], [1, 1, 1], [1, 0, 1], [1, 1, 1]],
+        "7": [[1, 1, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1]],
+        "8": [[1, 1, 1], [1, 0, 1], [1, 1, 1], [1, 0, 1], [1, 1, 1]],
+        "9": [[1, 1, 1], [1, 0, 1], [1, 1, 1], [0, 0, 1], [1, 1, 1]],
+        ":": [
             [0, 0],  # First row (top)
             [0, 1],  # Second row (middle)
             [0, 0],  # Third row (space)
             [1, 0],  # Fourth row (bottom dot)
-            [0, 0]  # Fifth row
-        ]
+            [0, 0],  # Fifth row
+        ],
     }
 
     for row in matrix:
@@ -698,7 +785,12 @@ def update_time_on_panel(matrix):
             for index in row:
                 if index == 1:
                     if debug:
-                        print("Row_count " + str(row_count) + " Col_count " + str(col_count))
+                        print(
+                            "Row_count "
+                            + str(row_count)
+                            + " Col_count "
+                            + str(col_count)
+                        )
                     matrix[row_count][col_count] = 1
 
                 col_count = col_count + 1
@@ -713,7 +805,9 @@ def update_time_on_panel(matrix):
     if current_time.second == 0:
         time_to_update = current_time + timedelta(minutes=1)
     else:
-        time_to_update = current_time.replace(second=0, microsecond=0) + timedelta(minutes=1)
+        time_to_update = current_time.replace(second=0, microsecond=0) + timedelta(
+            minutes=1
+        )
 
     add_time_card(time_to_update, "Time")
 
@@ -723,17 +817,17 @@ def update_time_on_panel(matrix):
     return matrix
 
 
-
 """
 Function: print_done - Is called whenever a print done packet is recieved it then sets panel to display this fact
 Expects: Expects strip to be correctly initialized
 Does: Sets the panel to display that the print is done
 
 """
-def print_done(strip):
-    desired_color = Color(0, 255, 0) # type: ignore
-    color_wipe(strip, desired_color, 1000)
 
+
+def print_done(strip):
+    desired_color = Color(0, 255, 0)  # type: ignore
+    color_wipe(strip, desired_color, 1000)
 
 
 """
@@ -742,15 +836,20 @@ Expects: Expects nothing
 Does: returns if a passed color is black
 
 """
+
+
 def helper_is_black(color):
     return color == 0x000000
 
+
 """
 Function: change_clocks_color - Simply changes the strips color (goes through the entire strip and changes all non black colors to the desired color_
-Expects: Expects strip and desired_color to be correctly initializaed 
+Expects: Expects strip and desired_color to be correctly initializaed
 Does: Changes all the pixels on the strip that aren't black to the desired color
 
 """
+
+
 def change_clocks_color(strip, desired_color):
     for i in range(strip.numPixels()):
         color = strip.getPixelColor(i)
@@ -759,15 +858,18 @@ def change_clocks_color(strip, desired_color):
 
     strip.show()
 
+
 """
 Function: compositor - functions as a typical compositor would. AKA Laying multiple images (matrixes) onto a display (strip)
-Expects: Expects strip, matrixes, translation_map, and the desired color be correctly intialized 
+Expects: Expects strip, matrixes, translation_map, and the desired color be correctly intialized
 Does: Compsites the panel using multiple matrixes, translation_map (matrix to strip), and the desired color
 """
+
+
 def compositor(strip, matrixes, translation_map, desired_color):
     debug = False
 
-    color_black = Color(0,0,0) # type: ignore # type: ignore
+    color_black = Color(0, 0, 0)  # type: ignore # type: ignore
     """Wipe color across display a pixel at a time."""
     for i in range(strip.numPixels()):
         strip.setPixelColor(i, color_black)
@@ -783,13 +885,19 @@ def compositor(strip, matrixes, translation_map, desired_color):
         for row in matrix:
             for element in row:
                 if debug:
-                    print("Row_count " + str(row_count) + " Col_count " + str(col_count))
-                    print("Accessing pixel " + str(translation_map[row_count][col_count]))
+                    print(
+                        "Row_count " + str(row_count) + " Col_count " + str(col_count)
+                    )
+                    print(
+                        "Accessing pixel " + str(translation_map[row_count][col_count])
+                    )
 
                 if element == 1:
                     if debug:
                         print("true")
-                    strip.setPixelColor(translation_map[row_count][col_count], desired_color)
+                    strip.setPixelColor(
+                        translation_map[row_count][col_count], desired_color
+                    )
                 elif element != 0:
                     strip.setPixelColor(translation_map[row_count][col_count], element)
 
@@ -798,27 +906,7 @@ def compositor(strip, matrixes, translation_map, desired_color):
             col_count = 0
             row_count += 1
 
-
     strip.show()
-
-"""
-Function: random_gif_helper - Given a directory it returns a list of all the files in the directory
-Expects: Expects the directory to be valid
-Does: Returns a list of all files in the directory
-"""
-
-def random_gif_helper(directory):
-    try:
-        # Get a sorted list of all files in the directory (excluding subdirectories)
-        files = [file for file in os.listdir(directory) if os.path.isfile(os.path.join(directory, file))]
-        return sorted(files)  # Sort the files to ensure consistent order
-    except FileNotFoundError:
-        print(f"The directory {directory} was not found.")
-        return []
-    except PermissionError:
-        print(f"Permission denied to access {directory}.")
-        return []
-
 
 
 """
@@ -826,6 +914,8 @@ Function: delete_file - Given a file path it deletes the file
 Expects: Expects the file path to be valid
 Does: Deletes the file at the given file path
 """
+
+
 def delete_file(file_path):
     try:
         if os.path.exists(file_path):
@@ -839,20 +929,62 @@ def delete_file(file_path):
         print(f"An error occurred: {e}")
 
 
-def animation_thread():
-    global animation_thread_flag
-    global exit_animation
+def check_brightness():
+    global brightness
+    global auto_brightness
+    global brightness_change
+    global ambient_light_lux
+    old_brightness = brightness
 
-    while not animation_thread_flag:
-        event = dev.read_one()
-        if event:
-            if event.value == 74 or event.value == 66:
-                exit_animation = True
-                animation_thread_flag = True
-                print("Exiting animation")
-                return
-            
-        time.sleep(0.1)
+    brightness_levels = {
+        0: 1,
+        1: 2,
+        2: 3,
+        3: 4,
+        4: 5,
+        5: 6,
+        6: 7,
+        7: 8,
+        8: 9,
+        9: 10,
+        10: 11,
+        11: 12,
+        12: 13,
+        13: 14,
+        14: 15,
+        15: 16,
+        16: 17,
+        17: 18,
+        18: 19,
+        19: 20,
+        20: 21,
+        21: 22,
+        22: 23,
+        23: 24,
+        24: 25,
+        25: 26,
+        26: 27,
+        27: 28,
+        28: 29,
+        29: 30,
+        30: 31,
+        31: 32,
+        32: 33,
+        33: 34,
+        34: 35,
+    }
+
+    if auto_brightness:
+        with lock:
+            brightness = max(
+                value
+                for key, value in brightness_levels.items()
+                if ambient_light_lux >= key
+            )
+            if old_brightness != brightness:
+                brightness_change = True
+                print("Changed brightness to: " + str(brightness))
+        add_time_card(datetime.now() + timedelta(seconds=10), "Auto_Brightness")
 
 
 """
@@ -861,15 +993,30 @@ Expects: Expects strip to be correctly initialized and side_length to be valid
 Does: Sets up and updates the clock to display the current time and temperature while accepting user IR commands for brightness etc
 
 """
+
+
 def clock_player(strip, side_length, time_card_heap):
     global brightness
+    global brightness_change
+    brightness_change = False
+    global lock
     global animation_thread_flag
     animation_thread_flag = False
-    desired_color = Color(255, 0, 0) # type: ignore
+    desired_color = Color(255, 0, 0)  # type: ignore
+    global color_position
     color_position = 0
-    random_gif_position = 0
+    global color_change
+    color_change = False
+    global gif_change
+    gif_change = 0
+    global gif_position
+    gif_position = 0
     random_gif_directory = "random_gif_anis"
-    
+    global exit_animation
+    exit_animation = False
+    temp_position = 0
+    global lock
+
     # Get the current time
     now = datetime.now()
 
@@ -907,10 +1054,10 @@ def clock_player(strip, side_length, time_card_heap):
     matrixes.append(time_matrix)
     update_temperature_on_panel(temperature_matrix)
     matrixes.append(temperature_matrix)
+    check_brightness()
     compositor(strip, matrixes, translation_map, desired_color)
 
-
-    while(True):
+    while True:
         current_time = datetime.now()
         if time_card_heap:
             first_task_time, first_task_description = time_card_heap[0]
@@ -918,8 +1065,12 @@ def clock_player(strip, side_length, time_card_heap):
             # time to do a task
             if first_task_time <= current_time:
                 heapq.heappop(time_card_heap)
-                print("running task " + first_task_description)
-
+                print(
+                    "running task "
+                    + first_task_description
+                    + " Time: "
+                    + datetime.now().strftime("%I:%M:%S %p %B %d %Y")
+                )
                 if first_task_description == "Time":
                     matrixes[0] = update_time_on_panel(time_matrix)
                     compositor(strip, matrixes, translation_map, desired_color)
@@ -928,113 +1079,60 @@ def clock_player(strip, side_length, time_card_heap):
                     compositor(strip, matrixes, translation_map, desired_color)
                 elif first_task_description == "Print Done":
                     print_done(strip)
+                elif first_task_description == "Auto_Brightness":
+                    check_brightness()
                 else:
-                    print("Invalid desired task no task called " + first_task_description)
+                    print(
+                        "Invalid desired task no task called " + first_task_description
+                    )
 
-        event = dev.read_one()
-        if (event):
-            print("Received commands", event.value)
-            # Turn brightness up
-            if event.value == 9:
-                if brightness < 45:
-                    change_brightness(strip, (brightness + 1))
-                    brightness += 1
-                    print("Changed Brightness to " + str(brightness))
+        # check todo list of possible state changes
+        lock.acquire()
+        try:
+            if brightness_change:
+                change_brightness(strip, brightness)
+                brightness_change = False
+            elif color_change:
+                desired_color = get_color(color_position)
+                change_clocks_color(strip, desired_color)
+                color_change = False
+            elif gif_change == 1:
+                temp_position = gif_position
+                lock.release()
+                play_animation(
+                    strip,
+                    "random_gif_anis/"
+                    + random_gif_helper(random_gif_directory)[temp_position],
+                    16,
+                )
+                gif_change = 0
+                compositor(strip, matrixes, translation_map, desired_color)
+                lock.acquire()
+                exit_animation = False
+                lock.release()
+            elif gif_change == 2:
+                while not exit_animation:
+                    temp_position = gif_position
+                    lock.release()
+                    play_animation(
+                        strip,
+                        "random_gif_anis/"
+                        + random_gif_helper(random_gif_directory)[temp_position],
+                        16,
+                    )
+                    lock.acquire()
 
-            # Turn brightness down
-            elif event.value == 7:
-                if brightness > 1:
-                    change_brightness(strip, (brightness - 1))
-                    brightness -= 1
-                    print("Changed Brightness to " + str(brightness))
-
-            # Turn off the light
-            elif event.value == 69:
-                change_brightness(strip, 0)
-                brightness = 0
-                print("Changed Brightness to " + str(brightness))
-
-            # Change the panels color up 1 position
-            elif event.value == 67:
-                if color_position < 51:
-                    color_position += 1
-                    desired_color = get_color(color_position)
-                    compositor(strip, matrixes, translation_map, desired_color)
-
-            # Change the panels color down a position
-            elif event.value == 68:
-                if color_position > 0:
-                    color_position -= 1
-                    desired_color = get_color(color_position)
-                    compositor(strip, matrixes, translation_map, desired_color)
-            elif event.value == 74:
-                if len(random_gif_helper(random_gif_directory)) == 0:
-                    print("No gifs found")
-                else:
-                    random_gif_position += 1
-                    if len(random_gif_helper(random_gif_directory)) == random_gif_position:
-                        random_gif_position = 0
-
-                    animation_thread_flag = False
-                    anim_thread = threading.Thread(target=animation_thread, daemon=True)
-                    anim_thread.start()
-                    play_animation(strip, "random_gif_anis/" + random_gif_helper(random_gif_directory)[random_gif_position], 16)
-                    compositor(strip, matrixes, translation_map, desired_color)
-
-            elif event.value == 66:
-                if len(random_gif_helper(random_gif_directory)) == 0:
-                    print("No gifs found")
-                else:
-                    if random_gif_position > 0:
-                        random_gif_position -= 1
-                    elif random_gif_position == 0:
-                        random_gif_position = len(random_gif_helper(random_gif_directory)) - 1
-
-                    animation_thread_flag = False
-                    anim_thread = threading.Thread(target=animation_thread, daemon=True)
-                    anim_thread.start()
-                    play_animation(strip, "random_gif_anis/" + random_gif_helper(random_gif_directory)[random_gif_position], 16)
-                    compositor(strip, matrixes, translation_map, desired_color)
-            
-            elif event.value == 28:
-                if len(random_gif_helper(random_gif_directory)) == 0:
-                    print("No gifs found")
-                else:
-                    play_animation(strip, "random_gif_anis/" + random_gif_helper(random_gif_directory)[random_gif_position], 16)
-                    compositor(strip, matrixes, translation_map, desired_color)
-
-            elif event.value == 82:
-                altmode = False
-                if altmode:
-                    time.sleep(1)
-                    if len(random_gif_helper(random_gif_directory)) == 0:
-                        print("No gifs found")
-                    else:
-                        delete_file("random_gif_anis/" + random_gif_helper(random_gif_directory)[random_gif_position])
-                else:
-                    while dev.read_one():
-                        pass  # Discard all stacked events
-                    while True:
-                        event = dev.read_one()
-                        if (event and event.value == 82) or (event and event.value == 0):
-                            compositor(strip, matrixes, translation_map, desired_color)
-                            break
-                        else:
-                            play_animation(strip, "random_gif_anis/" + random_gif_helper(random_gif_directory)[random_gif_position], 16)
-
-            # **Clear out any remaining queued IR events**  
-            while dev.read_one():
-                pass  # Discard all stacked events
-
+                exit_animation = False
+                gif_change = 0
+                compositor(strip, matrixes, translation_map, desired_color)
+        finally:
+            if lock.locked():
+                lock.release()
 
         first_task_time, first_task_description = time_card_heap[0]
         # time to do a task
         if first_task_time >= current_time:
             time.sleep(0.0166)
-
-
-
-
 
 
 """
@@ -1043,37 +1141,32 @@ Expects: NONE
 Does: Sets up ir_device, strip, etc for the panel to function
 
 """
-if __name__ == '__main__':
-
+if __name__ == "__main__":
     animation_thread_flag = False
     exit_animation = False
 
-    
     # Create NeoPixel object with appropriate configuration.
-    strip = Adafruit_NeoPixel(LED_COUNT, LED_PIN, LED_FREQ_HZ, LED_DMA, LED_INVERT, LED_BRIGHTNESS, LED_CHANNEL) # type: ignore
+    strip = Adafruit_NeoPixel(
+        LED_COUNT,
+        LED_PIN,
+        LED_FREQ_HZ,
+        LED_DMA,
+        LED_INVERT,
+        LED_BRIGHTNESS,
+        LED_CHANNEL,
+    )  # type: ignore
     # Intialize the library (must be called once before other functions).
     strip.begin()
 
-
     # Create thread to handle network requests
-    listener_thread = threading.Thread(target=listen_for_packets, daemon=True)
+    listener_thread = threading.Thread(target=listen_for_http, daemon=True)
     listener_thread.start()
 
     global brightness
-    global dev
     global time_card_heap
-    global temperature
-
-    temperature = 10
-
-    dev = get_ir_device()
-
-    #brightness = int(input("Please enter the desired brightness (max 35): "))
 
     time_card_heap = []
-
     brightness = 25
-
 
     # 35 max
     change_brightness(strip, brightness)
@@ -1084,14 +1177,16 @@ if __name__ == '__main__':
     elif brightness <= 0:
         brightness = 1
 
-    color_wipe(strip, Color(0,0,0), 1) # type: ignore
+    color_wipe(strip, Color(0, 0, 0), 100000)  # type: ignore
 
-    itinerary_or_ani_or_clock = input("Is this a .ani file?(A), or a .iti file?(I), or play clock (C): ")
+    itinerary_or_ani_or_clock = input(
+        "Is this a .ani file?(A), or a .iti file?(I), or play clock (C): "
+    )
     is_ani = False
     is_iti = False
     is_clock = False
 
-    if itinerary_or_ani_or_clock.lower() == 'a':
+    if itinerary_or_ani_or_clock.lower() == "a":
         file_name = input("Please enter the files name or path (with name): ")
 
         extentsion_check = file_name[-4:]
@@ -1101,16 +1196,16 @@ if __name__ == '__main__':
 
         is_ani = True
 
-    elif itinerary_or_ani_or_clock.lower() == 'i':
+    elif itinerary_or_ani_or_clock.lower() == "i":
         file_name = input("Please enter the files name or path (with name): ")
 
         extentsion_check = file_name[-4:]
 
         if extentsion_check.lower() != ".iti":
             file_name = file_name + ".iti"
-            
+
         is_iti = True
-    
+
     else:
         is_clock = True
 
@@ -1118,22 +1213,18 @@ if __name__ == '__main__':
     change_brightness(strip, brightness)
 
     while True:
-    
         try:
-
             if is_ani:
                 play_animation(strip, file_name, 16)
 
             elif is_iti:
                 itinerary_player(file_name, strip, 16)
             elif is_clock:
-
                 clock_player(strip, 16, time_card_heap)
 
         except KeyboardInterrupt:
             print("\nexiting")
-            color_wipe(strip, Color(0,0,0), .5) # type: ignore
+            color_wipe(strip, Color(0, 0, 0), 0.5)  # type: ignore
             break
-            
-    
-    #colorWipe(strip, Color(0, 0, 0), 10)
+
+    # colorWipe(strip, Color(0, 0, 0), 10)
