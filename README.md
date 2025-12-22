@@ -1,4 +1,4 @@
-Prototype 2.0 and rewrite is currently underway with documentation and full build guide
+Prototype 2.0 and rewrite is currently underway with documentation and full build guide. 2.0 will be much closer to a commercial product in terms of build quality, ease of use, and documentation (don't plan to sell just plan for high polish). Now that I have 1.0 done and personally have lived with it for like a year I know what improvements I want. 2.0 will also feature a complete refactor of the code running on the pi as ill move from python to rust. The move to rust will bring massive performance gains (helpful as panel size grows), memory safety as well as inherently more stability, and the refactor will have a lot of code cohesion benefits. 
 
 Prototype 1.0 details (EOL)
 
