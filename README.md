@@ -5,9 +5,14 @@ RuePanel is a fun project i've worked on which is essentially making my own Divo
 EVERYTHING is in beta and expect changes and functionality to be changed/added. 
 
 GIFs
-16 by 16  (current prototype)
+Prototype 1 (16 by 16) most accurate color (current prototype)
 
 ![](https://github.com/Mockedarche/RuePanel/blob/main/Media/16by16_example1.gif)
+
+Prototype 1 (16 by 16) functionality 
+
+
+![](https://github.com/Mockedarche/RuePanel/blob/main/Media/proto1_example.gif?raw=true)
 
 8 by 8 (first prototype)
 
