@@ -14,7 +14,7 @@ Prototype 1 (16 by 16) most accurate color (current prototype)
 
 ![](https://github.com/Mockedarche/RuePanel/blob/main/Media/16by16_example1.gif)
 
-Prototype 1 (16 by 16) functionality 
+Prototype 1 (16 by 16) functionality (allignment is a video artifact)
 
 
 ![](https://github.com/Mockedarche/RuePanel/blob/main/Media/proto1_example.gif?raw=true)
